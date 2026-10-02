@@ -2,6 +2,8 @@
 
 import asyncssh
 
+from homeassistant.components.device_tracker import DOMAIN as DEVICE_TRACKER_DOMAIN
+from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
@@ -10,9 +12,15 @@ from homeassistant.const import (
     CONF_USERNAME,
     Platform,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
+from homeassistant.helpers.typing import ConfigType
 
 from .client import (
     CiscoIOSClient,
@@ -32,8 +40,18 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import CiscoConfigEntry, CiscoCoordinator, host_key_issue_id
+from .links import async_prune_links, entity_prefix, get_links, ip_sensor_unique_id
+from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.DEVICE_TRACKER, Platform.SENSOR]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Cisco IOS Tracker service actions."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> bool:
@@ -77,8 +95,73 @@ async def async_setup_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> boo
     coordinator.async_update_router_device(coordinator.data.device)
 
     entry.runtime_data = coordinator
+    async_prune_links(hass, entry)
+    entry.async_on_unload(
+        hass.bus.async_listen(
+            dr.EVENT_DEVICE_REGISTRY_UPDATED,
+            callback(lambda event: _async_device_updated(hass, entry, event)),
+        )
+    )
+    entry.async_on_unload(
+        hass.bus.async_listen(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            callback(lambda event: _async_entity_updated(hass, entry, event)),
+        )
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+@callback
+def _async_device_updated(
+    hass: HomeAssistant,
+    entry: CiscoConfigEntry,
+    event: Event[dr.EventDeviceRegistryUpdatedData],
+) -> None:
+    """Forget the link of a tracker when its linked device is deleted."""
+    if event.data["action"] != "remove":
+        return
+    if event.data["device_id"] not in get_links(entry.options).values():
+        return
+    async_prune_links(hass, entry)
+    # Reload so the tracker gets its automatic device again.
+    hass.config_entries.async_schedule_reload(entry.entry_id)
+
+
+@callback
+def _async_entity_updated(
+    hass: HomeAssistant,
+    entry: CiscoConfigEntry,
+    event: Event[er.EventEntityRegistryUpdatedData],
+) -> None:
+    """Enable or disable the IP address sensor together with its tracker."""
+    if event.data["action"] != "update" or "disabled_by" not in event.data["changes"]:
+        return
+    entity_registry = er.async_get(hass)
+    tracker = entity_registry.async_get(event.data["entity_id"])
+    if (
+        tracker is None
+        or tracker.config_entry_id != entry.entry_id
+        or tracker.domain != DEVICE_TRACKER_DOMAIN
+    ):
+        return
+    mac = tracker.unique_id.removeprefix(entity_prefix(entry))
+    sensor_entity_id = entity_registry.async_get_entity_id(
+        SENSOR_DOMAIN, DOMAIN, ip_sensor_unique_id(entry, mac)
+    )
+    if (
+        sensor_entity_id is None
+        or (sensor := entity_registry.async_get(sensor_entity_id)) is None
+    ):
+        return
+    if tracker.disabled_by is None:
+        # Don't enable a sensor you disabled yourself.
+        if sensor.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+            entity_registry.async_update_entity(sensor.entity_id, disabled_by=None)
+    elif sensor.disabled_by is None:
+        entity_registry.async_update_entity(
+            sensor.entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION
+        )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> bool:

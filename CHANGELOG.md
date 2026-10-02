@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-03
+
+### Added
+
+- Link a tracker to a device of another integration, for example a Chromecast that was added without a MAC address. Use **Link a tracker to a device** in the options, or the new `cisco_ios_tracker.link_device` and `cisco_ios_tracker.unlink_device` actions. A link replaces the device Home Assistant picks automatically from the MAC address, and linking a disabled tracker enables it.
+- An IP address sensor for each tracker, with the client's last known IPv4 address. It sits on the same device as its tracker and is enabled and disabled together with it.
+
+### Changed
+
+- The options are now a menu: **Settings** holds Consider home and Maximum ARP age.
+
 ## [1.0.0] - 2026-10-02
 
 The first release: a config entry based replacement for the core `cisco_ios` device tracker.
@@ -32,4 +43,5 @@ The first release: a config entry based replacement for the core `cisco_ios` dev
 - Uses asyncssh instead of pexpect, so it no longer needs the `ssh` command on the host or a worker thread for every scan.
 - ARP entries without an interface column and banners or MOTD text no longer break parsing.
 
+[1.1.0]: https://github.com/Simeon26/ha-cisco-ios-tracker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Simeon26/ha-cisco-ios-tracker/releases/tag/v1.0.0

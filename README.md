@@ -29,6 +29,7 @@ It was built for and tested against the Cisco C1111-8PE (ISR 1100, IOS-XE 16.x a
 - [Options](#options)
 - [What you get](#what-you-get)
 - [Why new trackers may be disabled](#why-new-trackers-may-be-disabled)
+- [Linking a tracker to a device](#linking-a-tracker-to-a-device)
 - [Host key pinning](#host-key-pinning)
 - [Legacy SSH algorithms](#legacy-ssh-algorithms)
 - [Migrating from the core Cisco IOS integration](#migrating-from-the-core-cisco-ios-integration)
@@ -208,7 +209,7 @@ You can add more than one device. Each one is a separate entry.
 
 ## Options
 
-Open **Settings** > **Devices & services** > **Cisco IOS Tracker** and select **Configure**. Saving the options reloads the integration.
+Open **Settings** > **Devices & services** > **Cisco IOS Tracker** and select **Configure**, then **Settings**. Saving the options reloads the integration. The same menu has **Link a tracker to a device** and **Remove device links**, described in [Linking a tracker to a device](#linking-a-tracker-to-a-device).
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
@@ -238,6 +239,7 @@ With the defaults, a device is home if its ARP entry was refreshed within the la
   - `interface`: the router interface the entry was learned on, for example `Vlan1`.
 
   The attributes only change when the client's address or interface changes, so a client that stays home doesn't trigger state change automations on every poll.
+- **An IP address sensor for each tracker**, a diagnostic sensor that shows the client's last known IPv4 address, for example `sensor.00_1d_ec_02_07_ab_ip_address`. It keeps the last address while the client is away and after a restart, so you can see where a device was last reachable. It sits on the same device as its tracker, and is enabled and disabled together with it: enabling a tracker enables its sensor, unless you disabled the sensor yourself. Deleting a tracker deletes its sensor too.
 
 Trackers are kept when a client goes away; they show `not_home`. Home Assistant remembers when each client was last seen, so after a restart a client that was home stays home for the rest of the Consider home time, and a restart doesn't trigger "left home" automations.
 
@@ -263,6 +265,39 @@ To enable a tracker:
 You can enable several at once by selecting them and choosing **Enable selected**. While you are there, you can also give the tracker a friendly name.
 
 If another integration adds a device with that MAC address later, Home Assistant enables the tracker automatically.
+
+Linking a tracker to a device (see the next section) enables it too.
+
+## Linking a tracker to a device
+
+Home Assistant puts a tracker on a device automatically when another integration registered that device with the same MAC address. Some integrations don't record a MAC address: Google Cast, for example, identifies a Chromecast by its Cast ID. Their trackers end up without a device. You can link such a tracker to the device yourself, so the tracker and its IP address sensor show on that device's page.
+
+**With the options menu:**
+
+1. Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select **Configure** and choose **Link a tracker to a device**.
+2. Pick the **Tracker** (disabled trackers are listed too) and the **Device** to show it on, then submit.
+
+The integration reloads, and the tracker and its IP address sensor move to that device. A tracker that was disabled because its MAC address was unknown is enabled. To find the MAC address of a client, look at the `mac` attribute of its tracker, or at the router's DHCP bindings.
+
+**With actions**, for example from a script:
+
+```yaml
+action: cisco_ios_tracker.link_device
+data:
+  entity_id: device_tracker.00_1d_ec_02_07_ab
+  device_id: 0123456789abcdef0123456789abcdef
+```
+
+`cisco_ios_tracker.unlink_device` takes only `entity_id`. To find a device ID, open the device page; it is the last part of the address in your browser.
+
+Good to know:
+
+- A link always wins. If another integration also knows the MAC address, the tracker stays on the device you linked it to instead of the automatic one.
+- The other integration's device isn't changed; the link is stored in this integration's options.
+- To undo links, choose **Remove device links** in the options menu, or use the `unlink_device` action. The tracker goes back to the automatic device, if there is one.
+- If you delete the linked device, the link is removed and the tracker is kept.
+- You can't link a tracker to the router or to another device of this integration.
+- Linking doesn't change a tracker's entity ID. Only if you delete a linked tracker and it is created again does it get an entity ID based on the device name, for example `device_tracker.kitchen_speaker_00_1d_ec_02_07_ab`.
 
 ## Host key pinning
 
@@ -371,7 +406,7 @@ If you poll less often, set Consider home to more than your polling interval, or
 
 ## Diagnostics
 
-Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select the three-dot menu and choose **Download diagnostics**. The file contains the options, whether a host key is pinned and its type, whether legacy algorithms are in use, the last update status, the device model and software version, entry counts, and the ARP entries with interface and age. Host names, credentials, keys, serial numbers, IP addresses and MAC addresses are redacted, so it's safe to attach to an issue. The host key fingerprint is left out too, because internet scan databases index SSH host key fingerprints and could link it to your public IP address.
+Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select the three-dot menu and choose **Download diagnostics**. The file contains the options, the number of device links, whether a host key is pinned and its type, whether legacy algorithms are in use, the last update status, the device model and software version, entry counts, and the ARP entries with interface and age. Host names, credentials, keys, serial numbers, IP addresses and MAC addresses are redacted, so it's safe to attach to an issue. The host key fingerprint is left out too, because internet scan databases index SSH host key fingerprints and could link it to your public IP address.
 
 ## Limitations
 

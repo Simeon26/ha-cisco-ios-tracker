@@ -180,3 +180,17 @@ async def init_integration(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     return mock_config_entry
+
+
+def find_entry_device(
+    hass: HomeAssistant, entry_id: str, connection: tuple[str, str]
+) -> dr.DeviceEntry | None:
+    """Return the device of a config entry with a connection or identifier.
+
+    Works with the shared devices of HA before 2026.8 and the per config
+    entry devices after it.
+    """
+    for device in dr.async_entries_for_config_entry(dr.async_get(hass), entry_id):
+        if connection in device.connections or connection in device.identifiers:
+            return device
+    return None

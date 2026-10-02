@@ -120,14 +120,23 @@
       }
     },
     "sensor": {
+      "client_ip_address": {
+        "name": "{mac} IP address"
+      },
       "connected_clients": {
         "name": "Connected clients"
+      },
+      "ip_address": {
+        "name": "IP address"
       }
     }
   },
   "exceptions": {
     "cannot_connect": {
       "message": "Failed to get the ARP table from the device: {error}"
+    },
+    "device_not_found": {
+      "message": "The device was not found. It may have been deleted."
     },
     "host_key_mismatch": {
       "message": "The SSH host key of {host} does not match the stored key."
@@ -140,6 +149,18 @@
     },
     "key_file_not_found": {
       "message": "The private key file {key_file} does not exist or cannot be read. Restore the file, or reauthenticate to enter a new path or another login method."
+    },
+    "not_a_tracker": {
+      "message": "`{entity_id}` is not a tracker of the Cisco IOS Tracker integration."
+    },
+    "not_linked": {
+      "message": "The tracker is not linked to a device."
+    },
+    "own_device": {
+      "message": "You can't link a tracker to a device of the Cisco IOS Tracker integration. Choose a device from another integration."
+    },
+    "tracker_not_found": {
+      "message": "The tracker was not found. It may have been deleted."
     }
   },
   "issues": {
@@ -149,8 +170,36 @@
     }
   },
   "options": {
+    "abort": {
+      "no_trackers": "There are no trackers yet. Wait until the router has seen a client, then try again."
+    },
+    "error": {
+      "device_not_found": "The device was not found. It may have been deleted.",
+      "own_device": "You can't link a tracker to a device of this integration. Choose a device from another integration.",
+      "tracker_not_found": "The tracker was not found. It may have been deleted."
+    },
     "step": {
       "init": {
+        "menu_options": {
+          "link_device": "Link a tracker to a device",
+          "settings": "Settings",
+          "unlink_device": "Remove device links"
+        },
+        "title": "Cisco IOS Tracker options"
+      },
+      "link_device": {
+        "data": {
+          "device": "Device",
+          "tracker": "Tracker"
+        },
+        "data_description": {
+          "device": "The device to show the tracker on.",
+          "tracker": "The tracker to link. Disabled trackers are listed too; linking enables them."
+        },
+        "description": "Show a tracker and its IP address sensor on a device from another integration, for example a Chromecast that was added without a MAC address. A link replaces the device Home Assistant picks automatically from the MAC address.",
+        "title": "Link a tracker to a device"
+      },
+      "settings": {
         "data": {
           "consider_home": "Consider home",
           "max_arp_age": "Maximum ARP age"
@@ -160,8 +209,41 @@
           "max_arp_age": "The maximum age, in minutes, of an ARP entry for the client to count as seen. With 0, only entries that were refreshed in the last minute count. Raise this if your clients show as away while they are connected."
         },
         "description": "Change how clients are detected.",
-        "title": "Cisco IOS Tracker options"
+        "title": "Settings"
+      },
+      "unlink_device": {
+        "data": {
+          "trackers": "Links to remove"
+        },
+        "description": "The trackers you select go back to the device Home Assistant picks automatically.",
+        "title": "Remove device links"
       }
+    }
+  },
+  "services": {
+    "link_device": {
+      "description": "Shows a tracker and its IP address sensor on a device from another integration. The link is kept until you remove it, and replaces the device Home Assistant picks automatically from the MAC address.",
+      "fields": {
+        "device_id": {
+          "description": "The device to show the tracker on.",
+          "name": "Device"
+        },
+        "entity_id": {
+          "description": "The tracker to link.",
+          "name": "Tracker"
+        }
+      },
+      "name": "Link device"
+    },
+    "unlink_device": {
+      "description": "Removes the link of a tracker, so it goes back to the device Home Assistant picks automatically.",
+      "fields": {
+        "entity_id": {
+          "description": "The tracker to unlink.",
+          "name": "Tracker"
+        }
+      },
+      "name": "Unlink device"
     }
   }
 }

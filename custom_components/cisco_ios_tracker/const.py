@@ -29,3 +29,12 @@ DEFAULT_PORT: Final = 22
 SCAN_INTERVAL: Final = timedelta(seconds=30)
 
 ATTR_INTERFACE: Final = "interface"
+
+# Option holding manual links: tracker MAC address -> device registry id.
+CONF_DEVICE_LINKS: Final = "device_links"
+
+ATTR_DEVICE_ID: Final = "device_id"
+SERVICE_LINK_DEVICE: Final = "link_device"
+SERVICE_UNLINK_DEVICE: Final = "unlink_device"
+
+IP_ADDRESS_SUFFIX: Final = "_ip_address"

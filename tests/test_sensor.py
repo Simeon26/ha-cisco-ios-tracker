@@ -31,7 +31,7 @@ def platforms() -> Generator[None]:
         yield
 
 
-@pytest.mark.usefixtures("init_integration")
+@pytest.mark.usefixtures("mock_device_registry_devices", "init_integration")
 async def test_entities(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,

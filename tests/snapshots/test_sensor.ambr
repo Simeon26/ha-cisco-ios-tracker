@@ -1,4 +1,104 @@
 # serializer version: 1
+# name: test_entities[sensor.00_1d_ec_02_07_ab_ip_address-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.00_1d_ec_02_07_ab_ip_address',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'IP address',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'IP address',
+    'platform': 'cisco_ios_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'ip_address',
+    'unique_id': 'FGL2231L0AB_00:1d:ec:02:07:ab_ip_address',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[sensor.00_1d_ec_02_07_ab_ip_address-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: '00:1d:ec:02:07:ab IP address',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.00_1d_ec_02_07_ab_ip_address',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '10.1.10.20',
+  })
+# ---
+# name: test_entities[sensor.00_1d_ec_02_07_ac_ip_address-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.00_1d_ec_02_07_ac_ip_address',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'IP address',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'IP address',
+    'platform': 'cisco_ios_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'ip_address',
+    'unique_id': 'FGL2231L0AB_00:1d:ec:02:07:ac_ip_address',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[sensor.00_1d_ec_02_07_ac_ip_address-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: '00:1d:ec:02:07:ac IP address',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.00_1d_ec_02_07_ac_ip_address',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '10.1.20.21',
+  })
+# ---
 # name: test_entities[sensor.router1_connected_clients-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([

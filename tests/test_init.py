@@ -437,6 +437,9 @@ async def test_options_change_reloads(
 
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "settings"}
+    )
+    result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_CONSIDER_HOME: 180, CONF_MAX_ARP_AGE: 5}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY

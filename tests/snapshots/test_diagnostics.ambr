@@ -27,6 +27,7 @@
       'serial': '**REDACTED**',
       'sw_version': '17.09.04a',
     }),
+    'device_links': 0,
     'entry': dict({
       'data': dict({
         'auth_method': 'key_file',
@@ -95,6 +96,7 @@
       'serial': '**REDACTED**',
       'sw_version': '17.09.04a',
     }),
+    'device_links': 0,
     'entry': dict({
       'data': dict({
         'auth_method': 'password',
@@ -162,6 +164,7 @@
       'serial': '**REDACTED**',
       'sw_version': '17.09.04a',
     }),
+    'device_links': 0,
     'entry': dict({
       'data': dict({
         'auth_method': 'private_key',

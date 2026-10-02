@@ -4,11 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from homeassistant.components.device_tracker import (
-    ATTR_IP,
-    DOMAIN as DEVICE_TRACKER_DOMAIN,
-    ScannerEntity,
-)
+from homeassistant.components.device_tracker import ATTR_IP, ScannerEntity
+from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -16,8 +13,9 @@ from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTR_INTERFACE
+from .const import ATTR_INTERFACE, DOMAIN
 from .coordinator import CiscoConfigEntry, CiscoCoordinator
+from .links import async_get_linked_device, async_tracker_entries, ip_sensor_unique_id
 
 # The coordinator does all the polling.
 PARALLEL_UPDATES = 0
@@ -44,19 +42,11 @@ async def async_setup_entry(
     """Set up device trackers for the clients in the ARP table."""
     coordinator = entry.runtime_data
     tracked: set[str] = set()
-    prefix = f"{coordinator.router_identifier}_"
 
     # Restore trackers seen before, so offline clients show as away after a
     # restart instead of disappearing.
     restored: list[CiscoScannerEntity] = []
-    for registry_entry in er.async_entries_for_config_entry(
-        er.async_get(hass), entry.entry_id
-    ):
-        if registry_entry.domain != DEVICE_TRACKER_DOMAIN:
-            continue
-        if not registry_entry.unique_id.startswith(prefix):
-            continue
-        mac = registry_entry.unique_id.rpartition("_")[2]
+    for mac in async_tracker_entries(hass, entry):
         tracked.add(mac)
         restored.append(CiscoScannerEntity(coordinator, mac, tracked))
     async_add_entities(restored)
@@ -93,12 +83,22 @@ class CiscoScannerEntity(
         self._attr_name = mac
         self._attr_mac_address = mac
         self._interface: str | None = None
+        # A device you linked the tracker to replaces the automatic device.
+        self.device_entry = async_get_linked_device(
+            coordinator.hass, coordinator.config_entry, mac
+        )
+        self._linked = self.device_entry is not None
         self._update_from_arp()
 
     @property
     def unique_id(self) -> str:
         """Return a unique ID that is unique across config entries."""
         return f"{self.coordinator.router_identifier}_{self._mac}"
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Enable trackers you linked to a device, else use the default."""
+        return self._linked or super().entity_registry_enabled_default
 
     @property
     def is_connected(self) -> bool:
@@ -130,6 +130,17 @@ class CiscoScannerEntity(
         self._update_from_arp()
         super()._handle_coordinator_update()
 
+    async def async_internal_added_to_hass(self) -> None:
+        """Keep a linked tracker on the device you linked it to.
+
+        ScannerEntity moves a tracker to its own device when another
+        integration knows the MAC address; a manual link takes priority.
+        """
+        if not self._linked:
+            await super().async_internal_added_to_hass()
+            return
+        await super(ScannerEntity, self).async_internal_added_to_hass()
+
     async def async_added_to_hass(self) -> None:
         """Restore the last known state after a restart."""
         await super().async_added_to_hass()
@@ -154,3 +165,11 @@ class CiscoScannerEntity(
     async def async_removed_from_registry(self) -> None:
         """Forget the client so it is added again when it becomes active."""
         self._tracked.discard(self._mac)
+        # The IP address sensor belongs to the tracker; remove it with it.
+        entity_registry = er.async_get(self.hass)
+        if sensor_entity_id := entity_registry.async_get_entity_id(
+            SENSOR_DOMAIN,
+            DOMAIN,
+            ip_sensor_unique_id(self.coordinator.config_entry, self._mac),
+        ):
+            entity_registry.async_remove(sensor_entity_id)

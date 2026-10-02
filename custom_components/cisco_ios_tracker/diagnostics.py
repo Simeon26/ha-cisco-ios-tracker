@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    CONF_DEVICE_LINKS,
     CONF_HOST_KEY,
     CONF_KEY_FILE,
     CONF_LEGACY_ALGORITHMS,
@@ -17,6 +18,7 @@ from .const import (
     CONF_PRIVATE_KEY,
 )
 from .coordinator import CiscoConfigEntry
+from .links import get_links
 
 TO_REDACT = {
     CONF_HOST,
@@ -28,6 +30,8 @@ TO_REDACT = {
     CONF_HOST_KEY,
     CONF_UNIQUE_ID,
     "title",
+    # Keyed by client MAC address.
+    CONF_DEVICE_LINKS,
 }
 DEVICE_TO_REDACT = {"serial", "base_mac", "hostname"}
 
@@ -47,7 +51,8 @@ async def async_get_config_entry_diagnostics(
         "host_key_type": host_key.split()[0] if host_key else None,
         "legacy_algorithms": entry.data.get(CONF_LEGACY_ALGORITHMS, False),
         "last_update_success": coordinator.last_update_success,
-        "options": dict(entry.options),
+        "options": async_redact_data(dict(entry.options), TO_REDACT),
+        "device_links": len(get_links(entry.options)),
         "device": async_redact_data(asdict(data.device), DEVICE_TO_REDACT),
         "counts": {
             "arp_active": len(data.arp),

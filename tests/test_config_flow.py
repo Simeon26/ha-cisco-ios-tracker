@@ -21,6 +21,7 @@ from custom_components.cisco_ios_tracker.const import (
     AUTH_PASSWORD,
     AUTH_PRIVATE_KEY,
     CONF_AUTH_METHOD,
+    CONF_DEVICE_LINKS,
     CONF_HOST_KEY,
     CONF_KEY_FILE,
     CONF_LEGACY_ALGORITHMS,
@@ -40,6 +41,7 @@ from .conftest import (
     ENTRY_DATA,
     HOST,
     HOST_KEY,
+    MAC_1,
     NEW_HOST_KEY,
     PASSWORD,
     SERIAL,
@@ -695,14 +697,31 @@ async def test_options_flow(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
     """Test changing the options."""
+    links = {MAC_1: "device-id"}
     mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={**mock_config_entry.options, CONF_DEVICE_LINKS: links},
+    )
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
+    assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "init"
+    assert result["menu_options"] == ["settings", "link_device", "unlink_device"]
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "settings"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "settings"
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_CONSIDER_HOME: 300.0, CONF_MAX_ARP_AGE: 2.0}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert mock_config_entry.options == {CONF_CONSIDER_HOME: 300, CONF_MAX_ARP_AGE: 2}
+    # The links are kept.
+    assert mock_config_entry.options == {
+        CONF_CONSIDER_HOME: 300,
+        CONF_MAX_ARP_AGE: 2,
+        CONF_DEVICE_LINKS: links,
+    }
     assert isinstance(mock_config_entry.options[CONF_CONSIDER_HOME], int)

@@ -21,10 +21,17 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.selector import (
+    DeviceSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -49,6 +56,7 @@ from .const import (
     AUTH_PASSWORD,
     AUTH_PRIVATE_KEY,
     CONF_AUTH_METHOD,
+    CONF_DEVICE_LINKS,
     CONF_HOST_KEY,
     CONF_KEY_FILE,
     CONF_LEGACY_ALGORITHMS,
@@ -62,8 +70,12 @@ from .const import (
     MAX_ARP_AGE_LIMIT,
     MAX_CONSIDER_HOME,
 )
+from .links import async_link_device, async_tracker_entries, get_links
 
 AUTH_METHODS = [AUTH_PASSWORD, AUTH_PRIVATE_KEY, AUTH_KEY_FILE]
+CONF_TRACKER = "tracker"
+CONF_TRACKERS = "trackers"
+CONF_DEVICE = "device"
 # Keys that hold credentials; replaced as a whole when the credentials change.
 AUTH_KEYS = (
     CONF_AUTH_METHOD,
@@ -543,17 +555,118 @@ class CiscoIOSTrackerOptionsFlow(OptionsFlowWithReload):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
+        """Show the options menu."""
+        menu_options = ["settings", "link_device"]
+        if get_links(self.config_entry.options):
+            menu_options.append("unlink_device")
+        return self.async_show_menu(step_id="init", menu_options=menu_options)
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change how clients are detected."""
         if user_input is not None:
             return self.async_create_entry(
                 data={
+                    **self.config_entry.options,
                     CONF_CONSIDER_HOME: int(user_input[CONF_CONSIDER_HOME]),
                     CONF_MAX_ARP_AGE: int(user_input[CONF_MAX_ARP_AGE]),
                 }
             )
         return self.async_show_form(
-            step_id="init",
+            step_id="settings",
             data_schema=self.add_suggested_values_to_schema(
                 OPTIONS_SCHEMA, self.config_entry.options
             ),
         )
+
+    async def async_step_link_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Link a tracker to a device of another integration."""
+        trackers = async_tracker_entries(self.hass, self.config_entry)
+        if not trackers:
+            return self.async_abort(reason="no_trackers")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                options = async_link_device(
+                    self.hass,
+                    self.config_entry,
+                    user_input[CONF_TRACKER],
+                    user_input[CONF_DEVICE],
+                )
+            except ServiceValidationError as err:
+                errors["base"] = err.translation_key or "unknown"
+            else:
+                return self.async_create_entry(data=options)
+
+        tracker_options = [
+            SelectOptionDict(value=mac, label=_tracker_label(registry_entry))
+            for mac, registry_entry in sorted(
+                trackers.items(), key=lambda item: _tracker_label(item[1]).lower()
+            )
+        ]
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_TRACKER): SelectSelector(
+                    SelectSelectorConfig(
+                        options=tracker_options, mode=SelectSelectorMode.DROPDOWN
+                    )
+                ),
+                vol.Required(CONF_DEVICE): DeviceSelector(),
+            }
+        )
+        return self.async_show_form(
+            step_id="link_device",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input or {}),
+            errors=errors,
+        )
+
+    async def async_step_unlink_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Remove links between trackers and devices."""
+        links = get_links(self.config_entry.options)
+        if user_input is not None:
+            remaining = {
+                mac: device_id
+                for mac, device_id in links.items()
+                if mac not in user_input[CONF_TRACKERS]
+            }
+            return self.async_create_entry(
+                data={**self.config_entry.options, CONF_DEVICE_LINKS: remaining}
+            )
+
+        trackers = async_tracker_entries(self.hass, self.config_entry)
+        device_registry = dr.async_get(self.hass)
+        link_options = []
+        for mac, device_id in links.items():
+            tracker = _tracker_label(trackers[mac]) if mac in trackers else mac
+            device = device_registry.async_get(device_id)
+            device_name = (
+                (device.name_by_user or device.name or device_id)
+                if device
+                else device_id
+            )
+            link_options.append(
+                SelectOptionDict(value=mac, label=f"{tracker} → {device_name}")
+            )
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_TRACKERS): SelectSelector(
+                    SelectSelectorConfig(
+                        options=link_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(step_id="unlink_device", data_schema=schema)
+
+
+def _tracker_label(registry_entry: er.RegistryEntry) -> str:
+    """Return a label for a tracker in a selector."""
+    name = registry_entry.name or registry_entry.original_name
+    return f"{name} ({registry_entry.entity_id})"

@@ -1,0 +1,22 @@
+link_device:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            integration: cisco_ios_tracker
+            domain: device_tracker
+    device_id:
+      required: true
+      selector:
+        device:
+unlink_device:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            integration: cisco_ios_tracker
+            domain: device_tracker

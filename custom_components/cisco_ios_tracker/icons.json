@@ -9,9 +9,23 @@
       }
     },
     "sensor": {
+      "client_ip_address": {
+        "default": "mdi:ip-network"
+      },
       "connected_clients": {
         "default": "mdi:devices"
+      },
+      "ip_address": {
+        "default": "mdi:ip-network"
       }
+    }
+  },
+  "services": {
+    "link_device": {
+      "service": "mdi:link-variant"
+    },
+    "unlink_device": {
+      "service": "mdi:link-variant-off"
     }
   }
 }
