@@ -1,0 +1,67 @@
+# serializer version: 1
+# name: test_diagnostics
+  dict({
+    'active_entries': list([
+      dict({
+        'age': 0,
+        'interface': 'Vlan10',
+        'ip': '**REDACTED**',
+        'mac': '**REDACTED**',
+      }),
+      dict({
+        'age': 0,
+        'interface': 'Vlan20',
+        'ip': '**REDACTED**',
+        'mac': '**REDACTED**',
+      }),
+    ]),
+    'counts': dict({
+      'arp_active': 2,
+      'home': 2,
+      'tracked': 2,
+    }),
+    'device': dict({
+      'base_mac': None,
+      'hostname': '**REDACTED**',
+      'model': 'C1111-8PE',
+      'serial': '**REDACTED**',
+      'sw_version': '17.09.04a',
+    }),
+    'entry': dict({
+      'data': dict({
+        'auth_method': 'password',
+        'host': '**REDACTED**',
+        'host_key': '**REDACTED**',
+        'legacy_algorithms': False,
+        'password': '**REDACTED**',
+        'port': 22,
+        'username': '**REDACTED**',
+      }),
+      'disabled_by': None,
+      'discovery_keys': dict({
+      }),
+      'domain': 'cisco_ios_tracker',
+      'entry_id': '01JCISCO0000000000000000AB',
+      'minor_version': 1,
+      'options': dict({
+        'consider_home': 180,
+        'max_arp_age': 0,
+      }),
+      'pref_disable_new_entities': False,
+      'pref_disable_polling': False,
+      'source': 'user',
+      'subentries': list([
+      ]),
+      'title': '**REDACTED**',
+      'unique_id': '**REDACTED**',
+      'version': 1,
+    }),
+    'host_key_fingerprint': 'SHA256:toredkey',
+    'last_update_success': True,
+    'legacy_algorithms': False,
+    'options': dict({
+      'consider_home': 180,
+      'max_arp_age': 0,
+    }),
+  })
+# ---

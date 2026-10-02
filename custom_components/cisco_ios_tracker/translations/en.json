@@ -1,0 +1,169 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reauth_successful": "Reauthentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful.",
+      "wrong_device": "You connected to a different device. Its serial number does not match the device of this entry."
+    },
+    "error": {
+      "cannot_connect": "Failed to connect. Check the host, the port and that SSH is enabled on the device.",
+      "command_failed": "You logged in, but the device rejected the `show version` or `show ip arp` command. Check the privileges of the user.",
+      "host_key_mismatch": "The device presented a different SSH host key than the one that is stored. If the key change is expected, use **Reconfigure** on the integration to store the new key.",
+      "invalid_auth": "The device rejected the username or the credentials.",
+      "invalid_key": "The private key is not valid or not supported. Paste the private key, not the public key, in OpenSSH or PEM format.",
+      "invalid_passphrase": "The passphrase is missing or wrong.",
+      "key_file_not_found": "The key file does not exist or cannot be read.",
+      "no_common_algorithms": "Home Assistant and the device have no SSH algorithms in common. Check that SSH version 2 is enabled and that the device has an RSA host key.",
+      "unknown": "Unexpected error"
+    },
+    "step": {
+      "auth": {
+        "description": "Choose how Home Assistant logs in to the device.",
+        "menu_options": {
+          "key_file": "Private key file",
+          "password": "Password",
+          "private_key": "Pasted private key"
+        },
+        "title": "Login method"
+      },
+      "key_file": {
+        "data": {
+          "key_file": "Key file",
+          "passphrase": "Passphrase",
+          "username": "Username"
+        },
+        "data_description": {
+          "key_file": "The path of the private key file on the Home Assistant host, for example `/config/.ssh/id_ed25519`. A relative path is relative to your configuration folder.",
+          "passphrase": "Only needed if the private key is encrypted.",
+          "username": "The username to log in to the device with."
+        },
+        "description": "Log in to {host} with a private key file.",
+        "title": "Private key file"
+      },
+      "password": {
+        "data": {
+          "password": "Password",
+          "username": "Username"
+        },
+        "data_description": {
+          "password": "The password of the user on the device.",
+          "username": "The username to log in to the device with."
+        },
+        "description": "Log in to {host} with a password.",
+        "title": "Password"
+      },
+      "private_key": {
+        "data": {
+          "passphrase": "Passphrase",
+          "private_key": "Private key",
+          "username": "Username"
+        },
+        "data_description": {
+          "passphrase": "Only needed if the private key is encrypted.",
+          "private_key": "Paste the complete private key, including the `BEGIN` and `END` lines. The key is stored in your Home Assistant configuration.",
+          "username": "The username to log in to the device with."
+        },
+        "description": "Log in to {host} with a private key.",
+        "title": "Pasted private key"
+      },
+      "reauth_confirm": {
+        "description": "{host} rejected the stored credentials. Choose how Home Assistant logs in to the device.",
+        "menu_options": {
+          "key_file": "Private key file",
+          "password": "Password",
+          "private_key": "Pasted private key"
+        },
+        "title": "Log in again"
+      },
+      "reconfigure": {
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of the device.",
+          "port": "The SSH port of the device."
+        },
+        "description": "Change the address of the device. Home Assistant connects with the stored credentials and stores the SSH host key the device presents.",
+        "title": "Reconfigure the device"
+      },
+      "reconfigure_confirm_host_key": {
+        "description": "The SSH host key of {host} has changed.\n\nStored key: `{old_fingerprint}`\nNew key: `{new_fingerprint}`\n\nOnly continue if you expected this change, for example after you generated a new key on the device or replaced the device. You can check the key on the device with `show ip ssh` and `show crypto key mypubkey rsa`.",
+        "title": "Confirm the new host key"
+      },
+      "user": {
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "username": "Username"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of the Cisco IOS or IOS-XE device.",
+          "port": "The SSH port of the device.",
+          "username": "The username to log in to the device with. Privilege level 1 is enough."
+        },
+        "description": "Enter the details of the Cisco device whose ARP table you want to use for presence detection.",
+        "title": "Connect to your Cisco device"
+      }
+    }
+  },
+  "entity": {
+    "device_tracker": {
+      "device_tracker": {
+        "state_attributes": {
+          "interface": {
+            "name": "Interface"
+          },
+          "last_time_reachable": {
+            "name": "Last time reachable"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "connected_clients": {
+        "name": "Connected clients"
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Failed to get the ARP table from the device: {error}"
+    },
+    "host_key_mismatch": {
+      "message": "The SSH host key of {host} does not match the stored key."
+    },
+    "invalid_auth": {
+      "message": "The device rejected the credentials."
+    },
+    "invalid_key": {
+      "message": "The private key could not be loaded. The passphrase may be wrong or the key may be invalid."
+    },
+    "key_file_not_found": {
+      "message": "The private key file {key_file} does not exist or cannot be read."
+    }
+  },
+  "issues": {
+    "host_key_mismatch": {
+      "description": "The Cisco device {title} at {host} presented a different SSH host key than the one Home Assistant stored, so Home Assistant stopped connecting to it.\n\nStored key: `{expected}`\nPresented key: `{presented}`\n\nThis is expected after you generated a new host key or replaced the device. It can also mean that another device answers on this address.\n\nTo fix this issue:\n1. Check that the presented key belongs to your device: log in to the device, run `show ip ssh`, copy the key shown under `IOS Keys in SECSH format` into a file on your computer and run `ssh-keygen -l -f` on that file. The `SHA256:` fingerprint must match the presented key above. If `show ip ssh` doesn't show the key, the README of the integration explains how to use `show crypto key mypubkey rsa` instead.\n2. If the new key is the one you expect, go to **Settings** > **Devices & services** > **Cisco IOS Tracker**.\n3. Open the menu of the entry and select **Reconfigure**.\n4. Submit the form and confirm the new host key.\n\nAfter that, Home Assistant connects again and this issue is removed.",
+      "title": "SSH host key of {title} changed"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "consider_home": "Consider home",
+          "max_arp_age": "Maximum ARP age"
+        },
+        "data_description": {
+          "consider_home": "How long, in seconds, a client stays home after it was last seen in the ARP table.",
+          "max_arp_age": "The maximum age, in minutes, of an ARP entry for the client to count as seen. With 0, only entries that were refreshed in the last minute count. Raise this if your clients show as away while they are connected."
+        },
+        "description": "Change how clients are detected.",
+        "title": "Cisco IOS Tracker options"
+      }
+    }
+  }
+}

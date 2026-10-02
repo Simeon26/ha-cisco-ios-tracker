@@ -1,0 +1,93 @@
+name: Bug report
+description: Report something that does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        Please remove passwords, keys, IP addresses, MAC addresses and serial
+        numbers from anything you paste here. The diagnostics download
+        already redacts them.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen instead.
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Find it under **Settings** > **About**.
+      placeholder: "2026.9.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation type
+      options:
+        - Home Assistant OS
+        - Home Assistant Container
+        - Home Assistant Supervised
+        - Home Assistant Core (Python venv)
+    validations:
+      required: true
+  - type: input
+    id: device_model
+    attributes:
+      label: Cisco device model
+      placeholder: "C1111-8PE"
+    validations:
+      required: true
+  - type: input
+    id: device_software
+    attributes:
+      label: IOS or IOS-XE version
+      description: The first lines of `show version`.
+      placeholder: "Cisco IOS XE Software, Version 17.09.04a"
+    validations:
+      required: true
+  - type: dropdown
+    id: auth_method
+    attributes:
+      label: Authentication method
+      options:
+        - Password
+        - Pasted private key
+        - Private key file
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        Download them from **Settings** > **Devices & services** >
+        **Cisco IOS Tracker** > the three-dot menu > **Download diagnostics**,
+        then drag the file here.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug logs
+      description: >-
+        Enable debug logging for `custom_components.cisco_ios_tracker` and
+        `asyncssh` (see the README), reproduce the problem and paste the
+        relevant lines.
+      render: text

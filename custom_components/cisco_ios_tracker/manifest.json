@@ -1,0 +1,14 @@
+{
+  "domain": "cisco_ios_tracker",
+  "name": "Cisco IOS Tracker",
+  "codeowners": ["@Simeon26"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/Simeon26/ha-cisco-ios-tracker",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Simeon26/ha-cisco-ios-tracker/issues",
+  "loggers": ["asyncssh"],
+  "requirements": ["asyncssh>=2.21.0"],
+  "version": "1.0.0"
+}

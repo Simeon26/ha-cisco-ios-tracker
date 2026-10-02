@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Home Assistant community forum
+    url: https://community.home-assistant.io/
+    about: Ask general Home Assistant questions here.
+  - name: README and troubleshooting
+    url: https://github.com/Simeon26/ha-cisco-ios-tracker#troubleshooting
+    about: Check the setup and troubleshooting steps before you open an issue.

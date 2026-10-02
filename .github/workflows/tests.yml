@@ -1,0 +1,85 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch breakage from new Home Assistant releases.
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Ruff and mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.14"
+          activate-environment: true
+          cache-dependency-glob: "requirements*.txt"
+      - name: Install requirements
+        # mypy needs Home Assistant installed, which comes with phcc.
+        run: uv pip install -r requirements_test.txt -r requirements_lint.txt
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy
+
+  tests:
+    name: Pytest (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The version pinned in requirements_test.txt; snapshots are asserted.
+          - name: pinned HA
+            phcc: ""
+            pytest_args: ""
+          # The minimum version in hacs.json (phcc 0.13.317 is HA 2026.3.1).
+          # Snapshot output differs between releases, so regenerate them
+          # instead of asserting.
+          - name: minimum HA
+            phcc: "pytest-homeassistant-custom-component==0.13.317"
+            pytest_args: "--snapshot-update"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.14"
+          activate-environment: true
+          cache-dependency-glob: "requirements*.txt"
+      - name: Install requirements
+        env:
+          PHCC: ${{ matrix.phcc }}
+        # Resolve everything in one go so the older phcc gets compatible
+        # versions of asyncssh and cryptography.
+        run: |
+          if [ -n "$PHCC" ]; then
+            grep -v '^pytest-homeassistant-custom-component' requirements_test.txt > "$RUNNER_TEMP/requirements.txt"
+            uv pip install -r "$RUNNER_TEMP/requirements.txt" "$PHCC"
+          else
+            uv pip install -r requirements_test.txt
+          fi
+      - name: Show versions
+        run: uv pip list | grep -E -i '^(homeassistant|pytest-homeassistant-custom-component|asyncssh|cryptography) '
+      - name: Run pytest
+        env:
+          PYTEST_ARGS: ${{ matrix.pytest_args }}
+        run: pytest -p no:cacheprovider $PYTEST_ARGS

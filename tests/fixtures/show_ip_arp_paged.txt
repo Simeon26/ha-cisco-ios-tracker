@@ -1,0 +1,53 @@
+router1>show ip arp
+Protocol  Address          Age (min)  Hardware Addr   Type   Interface
+Internet  10.20.0.1               1   0011.2233.0001  ARPA   Vlan20
+Internet  10.20.0.2               2   0011.2233.0002  ARPA   Vlan20
+Internet  10.20.0.3               0   0011.2233.0003  ARPA   Vlan20
+Internet  10.20.0.4               1   0011.2233.0004  ARPA   Vlan20
+Internet  10.20.0.5               2   0011.2233.0005  ARPA   Vlan20
+Internet  10.20.0.6               0   0011.2233.0006  ARPA   Vlan20
+Internet  10.20.0.7               1   0011.2233.0007  ARPA   Vlan20
+Internet  10.20.0.8               2   0011.2233.0008  ARPA   Vlan20
+Internet  10.20.0.9               0   0011.2233.0009  ARPA   Vlan20
+Internet  10.20.0.10              1   0011.2233.000a  ARPA   Vlan20
+Internet  10.20.0.11              2   0011.2233.000b  ARPA   Vlan20
+Internet  10.20.0.12              0   0011.2233.000c  ARPA   Vlan20
+Internet  10.20.0.13              1   0011.2233.000d  ARPA   Vlan20
+Internet  10.20.0.14              2   0011.2233.000e  ARPA   Vlan20
+Internet  10.20.0.15              0   0011.2233.000f  ARPA   Vlan20
+Internet  10.20.0.16              1   0011.2233.0010  ARPA   Vlan20
+Internet  10.20.0.17              2   0011.2233.0011  ARPA   Vlan20
+Internet  10.20.0.18              0   0011.2233.0012  ARPA   Vlan20
+Internet  10.20.0.19              1   0011.2233.0013  ARPA   Vlan20
+Internet  10.20.0.20              2   0011.2233.0014  ARPA   Vlan20
+Internet  10.20.0.21              0   0011.2233.0015  ARPA   Vlan20
+Internet  10.20.0.22              1   0011.2233.0016  ARPA   Vlan20
+ --More--          Internet  10.20.0.23              2   0011.2233.0017  ARPA   Vlan20
+Internet  10.20.0.24              0   0011.2233.0018  ARPA   Vlan20
+Internet  10.20.0.25              1   0011.2233.0019  ARPA   Vlan20
+Internet  10.20.0.26              2   0011.2233.001a  ARPA   Vlan20
+Internet  10.20.0.27              0   0011.2233.001b  ARPA   Vlan20
+Internet  10.20.0.28              1   0011.2233.001c  ARPA   Vlan20
+Internet  10.20.0.29              2   0011.2233.001d  ARPA   Vlan20
+Internet  10.20.0.30              0   0011.2233.001e  ARPA   Vlan20
+Internet  10.20.0.31              1   0011.2233.001f  ARPA   Vlan20
+Internet  10.20.0.32              2   0011.2233.0020  ARPA   Vlan20
+Internet  10.20.0.33              0   0011.2233.0021  ARPA   Vlan20
+Internet  10.20.0.34              1   0011.2233.0022  ARPA   Vlan20
+Internet  10.20.0.35              2   0011.2233.0023  ARPA   Vlan20
+Internet  10.20.0.36              0   0011.2233.0024  ARPA   Vlan20
+Internet  10.20.0.37              1   0011.2233.0025  ARPA   Vlan20
+Internet  10.20.0.38              2   0011.2233.0026  ARPA   Vlan20
+Internet  10.20.0.39              0   0011.2233.0027  ARPA   Vlan20
+Internet  10.20.0.40              1   0011.2233.0028  ARPA   Vlan20
+Internet  10.20.0.41              2   0011.2233.0029  ARPA   Vlan20
+Internet  10.20.0.42              0   0011.2233.002a  ARPA   Vlan20
+Internet  10.20.0.43              1   0011.2233.002b  ARPA   Vlan20
+Internet  10.20.0.44              2   0011.2233.002c  ARPA   Vlan20
+Internet  10.20.0.45              0   0011.2233.002d  ARPA   Vlan20
+ --More--          Internet  10.20.0.46              1   0011.2233.002e  ARPA   Vlan20
+Internet  10.20.0.47              2   0011.2233.002f  ARPA   Vlan20
+Internet  10.20.0.48              0   0011.2233.0030  ARPA   Vlan20
+Internet  10.20.0.49              1   0011.2233.0031  ARPA   Vlan20
+Internet  10.20.0.50              2   0011.2233.0032  ARPA   Vlan20
+router1>

@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Each phcc release pins one Home Assistant version and needs a
+      # snapshot refresh, so bump it by hand (see CONTRIBUTING.md).
+      - dependency-name: pytest-homeassistant-custom-component

@@ -1,0 +1,2 @@
+# Command output fixtures contain CRLF line endings and backspaces on purpose.
+tests/fixtures/*.txt -text

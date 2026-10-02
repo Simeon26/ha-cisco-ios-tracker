@@ -1,0 +1,123 @@
+# serializer version: 1
+# name: test_entities[device_tracker.00_1d_ec_02_07_ab-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'device_tracker',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'device_tracker.00_1d_ec_02_07_ab',
+    'has_entity_name': False,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': '00:1d:ec:02:07:ab',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': '00:1d:ec:02:07:ab',
+    'platform': 'cisco_ios_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'device_tracker',
+    'unique_id': 'FGL2231L0AB_00:1d:ec:02:07:ab',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[device_tracker.00_1d_ec_02_07_ab-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: '00:1d:ec:02:07:ab',
+      <DeviceTrackerEntityStateAttribute.IN_ZONES: 'in_zones'>: list([
+        'zone.home',
+      ]),
+      'interface': 'Vlan10',
+      <ScannerEntityStateAttribute.IP: 'ip'>: '10.1.10.20',
+      'last_time_reachable': '2026-10-02T12:00:00+00:00',
+      <ScannerEntityStateAttribute.MAC: 'mac'>: '00:1d:ec:02:07:ab',
+      <DeviceTrackerEntityStateAttribute.SOURCE_TYPE: 'source_type'>: <SourceType.ROUTER: 'router'>,
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'device_tracker.00_1d_ec_02_07_ab',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'home',
+  })
+# ---
+# name: test_entities[device_tracker.00_1d_ec_02_07_ac-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': dict({
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'device_tracker',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'device_tracker.00_1d_ec_02_07_ac',
+    'has_entity_name': False,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': '00:1d:ec:02:07:ac',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': '00:1d:ec:02:07:ac',
+    'platform': 'cisco_ios_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'device_tracker',
+    'unique_id': 'FGL2231L0AB_00:1d:ec:02:07:ac',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_entities[device_tracker.00_1d_ec_02_07_ac-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: '00:1d:ec:02:07:ac',
+      <DeviceTrackerEntityStateAttribute.IN_ZONES: 'in_zones'>: list([
+        'zone.home',
+      ]),
+      'interface': 'Vlan20',
+      <ScannerEntityStateAttribute.IP: 'ip'>: '10.1.20.21',
+      'last_time_reachable': '2026-10-02T12:00:00+00:00',
+      <ScannerEntityStateAttribute.MAC: 'mac'>: '00:1d:ec:02:07:ac',
+      <DeviceTrackerEntityStateAttribute.SOURCE_TYPE: 'source_type'>: <SourceType.ROUTER: 'router'>,
+      <DeviceTrackerEntityCapabilityAttribute.TRACKING_TYPE: 'tracking_type'>: <TrackingType.CONNECTION: 'connection'>,
+    }),
+    'context': <ANY>,
+    'entity_id': 'device_tracker.00_1d_ec_02_07_ac',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'home',
+  })
+# ---

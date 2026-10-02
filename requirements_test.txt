@@ -1,0 +1,6 @@
+# Pin phcc exactly: each patch release pins one Home Assistant version
+# (0.13.367 -> homeassistant==2026.9.4, Python >=3.14.2).
+# Bump it together with the snapshots, see CONTRIBUTING.md.
+pytest-homeassistant-custom-component==0.13.367
+# Runtime requirement, same lower bound as manifest.json.
+asyncssh>=2.21.0

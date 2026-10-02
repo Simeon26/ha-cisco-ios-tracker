@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest an idea or an improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Tell us what you are trying to do and why it is hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you would like it to work.
+    validations:
+      required: true
+  - type: input
+    id: device_model
+    attributes:
+      label: Cisco device model and software version
+      description: Only if the request is about a specific device.
+      placeholder: "C1111-8PE, IOS-XE 17.09.04a"
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Example command output, links or screenshots. Remove any private data first.
