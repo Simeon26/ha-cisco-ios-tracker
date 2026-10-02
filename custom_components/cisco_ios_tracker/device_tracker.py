@@ -1,5 +1,7 @@
 """Device tracker platform for the Cisco IOS Tracker integration."""
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.device_tracker import (
@@ -10,15 +12,28 @@ from homeassistant.components.device_tracker import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTR_INTERFACE, ATTR_LAST_TIME_REACHABLE
+from .const import ATTR_INTERFACE
 from .coordinator import CiscoConfigEntry, CiscoCoordinator
 
 # The coordinator does all the polling.
 PARALLEL_UPDATES = 0
+
+LAST_SEEN = "last_seen"
+
+
+@dataclass(slots=True)
+class CiscoTrackerExtraData(ExtraStoredData):
+    """When the client was last seen, stored to restore it after a restart."""
+
+    last_seen: datetime | None
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a dict representation of the extra data."""
+        return {LAST_SEEN: self.last_seen.isoformat() if self.last_seen else None}
 
 
 async def async_setup_entry(
@@ -67,9 +82,6 @@ class CiscoScannerEntity(
     """A client seen in the ARP table of the router."""
 
     _attr_translation_key = "device_tracker"
-    # This changes on every poll while the client is home; it is only needed
-    # to restore the state after a restart, so keep it out of the recorder.
-    _unrecorded_attributes = frozenset({ATTR_LAST_TIME_REACHABLE})
 
     def __init__(
         self, coordinator: CiscoCoordinator, mac: str, tracked: set[str]
@@ -95,12 +107,15 @@ class CiscoScannerEntity(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the interface and the time the client was last seen."""
-        last_seen = self.coordinator.last_seen.get(self._mac)
-        return {
-            ATTR_INTERFACE: self._interface,
-            ATTR_LAST_TIME_REACHABLE: last_seen.isoformat() if last_seen else None,
-        }
+        """Return the interface the client was last seen on."""
+        # The last seen time changes on every poll while the client is home,
+        # so it is stored as restore data instead of a state attribute.
+        return {ATTR_INTERFACE: self._interface}
+
+    @property
+    def extra_restore_state_data(self) -> CiscoTrackerExtraData:
+        """Return the time the client was last seen, to restore it later."""
+        return CiscoTrackerExtraData(self.coordinator.last_seen.get(self._mac))
 
     @callback
     def _update_from_arp(self) -> None:
@@ -126,7 +141,10 @@ class CiscoScannerEntity(
         attributes = last_state.attributes
         self._attr_ip_address = attributes.get(ATTR_IP)
         self._interface = attributes.get(ATTR_INTERFACE)
-        if (reachable := attributes.get(ATTR_LAST_TIME_REACHABLE)) and (
+        if (extra_data := await self.async_get_last_extra_data()) is None:
+            return
+        reachable = extra_data.as_dict().get(LAST_SEEN)
+        if isinstance(reachable, str) and (
             last_seen := dt_util.parse_datetime(reachable)
         ):
             # Keep a client that was home before the restart home for the

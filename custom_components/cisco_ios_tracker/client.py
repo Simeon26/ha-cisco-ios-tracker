@@ -28,6 +28,10 @@ _LEGACY_KEX_ALGS = "+diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sh
 _LEGACY_ENCRYPTION_ALGS = "+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc"
 _LEGACY_MAC_ALGS = "+hmac-sha1-96,hmac-md5"
 
+# Errors when the device closes an established connection. Before the host
+# key is presented, they can also mean that the key exchange failed.
+_DROPPED_ERRORS = (BrokenPipeError, ConnectionResetError)
+
 _READ_SIZE = 65536
 # How long to wait for the device to close the session after `exit`.
 _EXIT_TIMEOUT = 2.0
@@ -40,13 +44,20 @@ _MORE_AT_END_RE = re.compile(r"[ \t]*-{2}[ \t]?More[ \t]?-{2}[ \t]*$")
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[=>78])")
 # IOS erases the --More-- marker with backspaces, spaces and backspaces.
 _ERASE_RE = re.compile(r"\x08+[ \t]*\x08*")
+# AAA command authorization denials ("Command authorization failed.") are
+# printed without the leading %.
 _COMMAND_ERROR_RE = re.compile(
-    r"^[ \t]*%[ \t]*(?:Invalid input|Unknown command|Incomplete command"
-    r"|Ambiguous command|(?:Command )?[Aa]uthorization failed).*$",
+    r"^[ \t]*(?:%[ \t]*(?:Invalid input|Unknown command|Incomplete command"
+    r"|Ambiguous command)|%?[ \t]*(?:Command )?[Aa]uthorization failed).*$",
     re.MULTILINE,
 )
 _PUBLIC_KEY_RE = re.compile(r"^(?:ssh-|ecdsa-sha2-|sk-)\S+ +AAAA")
+# PEM keys encrypted with a passphrase (PKCS#8 or the old PKCS#1 encryption).
+_ENCRYPTED_PEM_RE = re.compile(
+    rb"^(?:-----BEGIN ENCRYPTED |Proc-Type: 4,ENCRYPTED)", re.MULTILINE
+)
 
+_ARP_HEADER_RE = re.compile(r"^[ \t]*Protocol[ \t]+Address\b", re.MULTILINE)
 _ARP_RE = re.compile(
     r"^[ \t]*Internet[ \t]+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})[ \t]+(?P<age>-|\d+)"
     r"[ \t]+(?P<mac>[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})"
@@ -87,6 +98,18 @@ class CiscoAuthenticationError(CiscoError):
 
 class CiscoKeyExchangeError(CiscoConnectionError):
     """The client and the device have no SSH algorithms in common."""
+
+
+class _CiscoEarlyDisconnectError(CiscoConnectionError):
+    """The device closed the connection before the key exchange finished.
+
+    Some devices drop the TCP connection right away when they find no common
+    algorithms, so this can hide a key exchange failure.
+    """
+
+
+# Errors after which a connection is tried again with legacy algorithms.
+_LEGACY_RETRY_ERRORS = (CiscoKeyExchangeError, _CiscoEarlyDisconnectError)
 
 
 class CiscoHostKeyMismatchError(CiscoError):
@@ -209,6 +232,11 @@ def load_private_key(
         message = str(err)
         if "Passphrase must be specified" in message or "Unable to decrypt" in message:
             raise CiscoPassphraseError(message) from err
+        raw = data.encode() if isinstance(data, str) else data
+        if passphrase and _ENCRYPTED_PEM_RE.search(raw):
+            # A wrong passphrase sometimes decrypts an encrypted PEM key to
+            # data that only fails to parse.
+            raise CiscoPassphraseError(message) from err
         raise CiscoInvalidKeyError(message) from err
     except ValueError as err:
         raise CiscoInvalidKeyError(str(err)) from err
@@ -236,6 +264,21 @@ def parse_arp_table(output: str) -> list[ArpEntry]:
     ]
 
 
+def _parse_arp_output(output: str) -> list[ArpEntry]:
+    """Parse `show ip arp` output from the device and check that it is one.
+
+    Empty output is a valid, empty table. Other text without an ARP header
+    or row means the device printed something else, such as an AAA message.
+    """
+    entries = parse_arp_table(output)
+    text = _clean_output(output).strip()
+    if text and not entries and not _ARP_HEADER_RE.search(text):
+        raise CiscoCommandError(
+            f"Unexpected output from {CMD_SHOW_ARP!r}: {text.splitlines()[0]}"
+        )
+    return entries
+
+
 def _search(pattern: re.Pattern[str], text: str) -> str | None:
     """Return the first group of the first match, or None."""
     return match[1] if (match := pattern.search(text)) else None
@@ -255,6 +298,18 @@ def parse_show_version(output: str) -> CiscoDeviceInfo:
     )
 
 
+def _parse_version_output(output: str) -> CiscoDeviceInfo:
+    """Parse `show version` output from the device and check that it is one."""
+    device = parse_show_version(output)
+    if device.sw_version is None and device.hostname is None:
+        text = _clean_output(output).strip()
+        first_line = text.splitlines()[0] if text else "no output"
+        raise CiscoCommandError(
+            f"Unexpected output from {CMD_SHOW_VERSION!r}: {first_line}"
+        )
+    return device
+
+
 def fingerprint(public_key_openssh: str) -> str:
     """Return the SHA256 fingerprint of an OpenSSH format public key."""
     try:
@@ -272,9 +327,16 @@ def _export_public_key(key: asyncssh.SSHKey) -> str:
 class _HostKeyValidator(asyncssh.SSHClient):
     """Record the host key the device presents and compare it to the pinned key."""
 
-    def __init__(self, expected: asyncssh.SSHKey | None) -> None:
-        """Initialize with the pinned key, or None to trust on first use."""
+    def __init__(
+        self, expected: asyncssh.SSHKey | None, *, reject: bool = False
+    ) -> None:
+        """Initialize with the pinned key, or None to trust on first use.
+
+        With `reject`, every key is refused after it was recorded, so the
+        connection ends before any credentials are sent.
+        """
         self.expected = expected
+        self.reject = reject
         self.presented: asyncssh.SSHKey | None = None
 
     def validate_host_public_key(
@@ -283,6 +345,8 @@ class _HostKeyValidator(asyncssh.SSHClient):
         """Accept the key if nothing is pinned or it matches the pinned key."""
         _LOGGER.debug("%s presented host key %s", host, key.get_fingerprint())
         self.presented = key
+        if self.reject:
+            return False
         return self.expected is None or key == self.expected
 
 
@@ -411,14 +475,14 @@ class CiscoIOSClient:
         (output,) = await self._async_run_commands(
             (CMD_SHOW_ARP,), self.legacy_algorithms
         )
-        return parse_arp_table(output)
+        return _parse_arp_output(output)
 
     async def async_get_device_info(self) -> CiscoDeviceInfo:
         """Return the parsed device information."""
         (output,) = await self._async_run_commands(
             (CMD_SHOW_VERSION,), self.legacy_algorithms
         )
-        return parse_show_version(output)
+        return _parse_version_output(output)
 
     async def async_get_all(self) -> tuple[CiscoDeviceInfo, list[ArpEntry]]:
         """Return device information and the ARP table from one SSH session."""
@@ -432,17 +496,43 @@ class CiscoIOSClient:
         """
         try:
             return await self._async_get_all(self.legacy_algorithms)
-        except CiscoKeyExchangeError as err:
+        except _LEGACY_RETRY_ERRORS as err:
             if self.legacy_algorithms:
                 raise
+            first_error: CiscoConnectionError = err
             _LOGGER.debug(
                 "No common SSH algorithms with %s, retrying with legacy algorithms: %s",
                 self.host,
                 err,
             )
-        result = await self._async_get_all(True)
-        self.legacy_algorithms = True
-        return result
+        try:
+            result = await self._async_get_all(True)
+        except CiscoKeyExchangeError:
+            raise
+        except CiscoConnectionError:
+            # The legacy attempt failed for another reason, so the first
+            # error describes the problem better.
+            pass
+        else:
+            self.legacy_algorithms = True
+            return result
+        raise first_error
+
+    async def async_fetch_host_key(self) -> str:
+        """Return the host key the device presents, without logging in.
+
+        No credentials are sent. Legacy algorithms are tried like in
+        `async_probe`, and `legacy_algorithms` is set to True when needed.
+        """
+        try:
+            key = await self._async_fetch_host_key(self.legacy_algorithms)
+        except _LEGACY_RETRY_ERRORS:
+            if self.legacy_algorithms:
+                raise
+            key = await self._async_fetch_host_key(True)
+            self.legacy_algorithms = True
+        self._presented_host_key = _export_public_key(key)
+        return self._presented_host_key
 
     async def _async_get_all(
         self, legacy: bool
@@ -451,7 +541,7 @@ class CiscoIOSClient:
         version, arp = await self._async_run_commands(
             (CMD_SHOW_VERSION, CMD_SHOW_ARP), legacy
         )
-        return parse_show_version(version), parse_arp_table(arp)
+        return _parse_version_output(version), _parse_arp_output(arp)
 
     def _connect_options(
         self, expected: asyncssh.SSHKey | None, legacy: bool
@@ -517,19 +607,21 @@ class CiscoIOSClient:
                 expected_fingerprint,
                 presented.get_fingerprint() if presented else None,
             ) from err
-        except asyncssh.KeyExchangeFailed as err:
-            if expected is not None and "host key" in err.reason.lower():
-                # The device no longer offers the pinned host key type.
-                raise CiscoHostKeyMismatchError(expected_fingerprint, None) from err
-            raise CiscoKeyExchangeError(
-                f"No common SSH algorithms: {err.reason}"
-            ) from err
+        except (asyncssh.Error, *_DROPPED_ERRORS) as err:
+            if validator.presented is None and expected is not None:
+                # The key exchange failed with only the pinned key type
+                # allowed. The device may no longer offer that type; how it
+                # reports that differs, so check the key it presents now.
+                await self._async_raise_if_host_key_changed(expected, legacy, err)
+            if isinstance(err, asyncssh.KeyExchangeFailed):
+                raise CiscoKeyExchangeError(f"No common SSH algorithms: {err}") from err
+            if validator.presented is None:
+                raise _CiscoEarlyDisconnectError(f"SSH error: {err}") from err
+            raise CiscoConnectionError(f"SSH error: {err}") from err
         except TimeoutError as err:
             raise CiscoConnectionError(
                 f"Timed out talking to {self.host}:{self.port}"
             ) from err
-        except asyncssh.Error as err:
-            raise CiscoConnectionError(f"SSH error: {err.reason}") from err
         except OSError as err:
             raise CiscoConnectionError(
                 f"Cannot connect to {self.host}:{self.port}: {err}"
@@ -537,6 +629,69 @@ class CiscoIOSClient:
         finally:
             if validator.presented is not None:
                 self._presented_host_key = _export_public_key(validator.presented)
+
+    async def _async_raise_if_host_key_changed(
+        self, expected: asyncssh.SSHKey, legacy: bool, err: Exception
+    ) -> None:
+        """Raise CiscoHostKeyMismatchError if the device presents another key.
+
+        Errors while fetching the key are ignored, so the caller can raise
+        the original error.
+        """
+        try:
+            presented = await self._async_fetch_host_key(legacy)
+        except CiscoError:
+            return
+        if presented == expected:
+            return
+        self._presented_host_key = _export_public_key(presented)
+        raise CiscoHostKeyMismatchError(
+            expected.get_fingerprint(), presented.get_fingerprint()
+        ) from err
+
+    async def _async_fetch_host_key(self, legacy: bool) -> asyncssh.SSHKey:
+        """Connect without logging in and return the host key the device presents.
+
+        Any host key type is allowed. The key is refused after it was
+        recorded, so the connection ends before authentication.
+        """
+        validator = _HostKeyValidator(None, reject=True)
+        options = self._connect_options(None, legacy) | {
+            "password": None,
+            "client_keys": None,
+        }
+        try:
+            async with asyncio.timeout(self._timeout * 3):
+                conn, _ = await asyncssh.create_connection(
+                    lambda: validator, self.host, **options
+                )
+        except asyncssh.HostKeyNotVerifiable:
+            pass
+        except asyncssh.KeyExchangeFailed as err:
+            raise CiscoKeyExchangeError(
+                f"No common SSH algorithms: {err.reason}"
+            ) from err
+        except (asyncssh.Error, *_DROPPED_ERRORS) as err:
+            raise _CiscoEarlyDisconnectError(f"SSH error: {err}") from err
+        except TimeoutError as err:
+            raise CiscoConnectionError(
+                f"Timed out talking to {self.host}:{self.port}"
+            ) from err
+        except OSError as err:
+            raise CiscoConnectionError(
+                f"Cannot connect to {self.host}:{self.port}: {err}"
+            ) from err
+        else:
+            # Only reached if no host key was checked at all.
+            conn.abort()
+        if validator.presented is None:
+            raise CiscoConnectionError(f"{self.host} presented no host key")
+        _LOGGER.debug(
+            "Fetched host key %s from %s",
+            validator.presented.get_fingerprint(),
+            self.host,
+        )
+        return validator.presented
 
     async def _async_session(
         self,

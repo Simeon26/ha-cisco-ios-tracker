@@ -72,18 +72,12 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Allow Home Assistant to load the custom integration in every test."""
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_fingerprint() -> Generator[None]:
-    """Make fingerprints independent of the client implementation."""
-    with (
-        patch(
-            "custom_components.cisco_ios_tracker.config_flow.fingerprint",
-            side_effect=fake_fingerprint,
-        ),
-        patch(
-            "custom_components.cisco_ios_tracker.diagnostics.fingerprint",
-            side_effect=fake_fingerprint,
-        ),
+    """Make fingerprints of the fake host keys work in the config flow."""
+    with patch(
+        "custom_components.cisco_ios_tracker.config_flow.fingerprint",
+        side_effect=fake_fingerprint,
     ):
         yield
 

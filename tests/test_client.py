@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import socket
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import asyncssh
 import pytest
@@ -17,6 +18,7 @@ from custom_components.cisco_ios_tracker.client import (
     CiscoCommandError,
     CiscoConnectionError,
     CiscoDeviceInfo,
+    CiscoError,
     CiscoHostKeyMismatchError,
     CiscoInvalidKeyError,
     CiscoIOSClient,
@@ -24,6 +26,7 @@ from custom_components.cisco_ios_tracker.client import (
     CiscoKeyExchangeError,
     CiscoKeyFileNotFoundError,
     CiscoPassphraseError,
+    _CiscoEarlyDisconnectError,
     fingerprint,
     load_private_key,
     parse_arp_table,
@@ -59,6 +62,11 @@ C1111_ARP = [
     ArpEntry("203.0.113.14", "7c:31:0e:5a:1b:4b", None, "GigabitEthernet0/0/0"),
 ]
 SETUP_COMMANDS = ["terminal length 0", "terminal width 511"]
+# What IOS prints when TACACS+ or ISE command authorization denies a command.
+COMMAND_AUTHORIZATION_FAILED = "Command authorization failed."
+# A failed key exchange is reported either way, depending on whether the
+# device's disconnect message or the closed connection arrives first.
+KEX_FAILURES = (CiscoKeyExchangeError, _CiscoEarlyDisconnectError)
 
 
 def _large_arp_table(rows: int) -> str:
@@ -304,6 +312,38 @@ def test_load_key_collapsed_pem_headers(
         load_private_key(text.strip().replace("\n", " "), None, "s3cret")
 
 
+@pytest.mark.parametrize("fmt", ["pkcs8-pem", "pkcs1-pem"])
+def test_load_encrypted_pem_undecodable(
+    private_keys: dict[str, asyncssh.SSHKey],
+    fmt: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test a wrong passphrase that decrypts an encrypted PEM key to garbage.
+
+    With the old PEM encryption this happens about once in 256 tries, and
+    asyncssh then reports an invalid key instead of a wrong passphrase.
+    """
+    text = _export(private_keys["ssh-rsa"], fmt, passphrase="s3cret")
+    path = tmp_path / "id_key"
+    path.write_text(text)
+
+    def _raise(*args: object) -> None:
+        raise asyncssh.KeyImportError("Invalid PEM private key")
+
+    monkeypatch.setattr(asyncssh, "import_private_key", _raise)
+    with pytest.raises(CiscoPassphraseError):
+        load_private_key(text, None, "wrong")
+    with pytest.raises(CiscoPassphraseError):
+        load_private_key(None, str(path), "wrong")
+    # Without a passphrase, or for a key that isn't encrypted, it is invalid.
+    with pytest.raises(CiscoInvalidKeyError):
+        load_private_key(text, None, None)
+    plain = _export(private_keys["ssh-rsa"], fmt)
+    with pytest.raises(CiscoInvalidKeyError):
+        load_private_key(plain, None, "wrong")
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -507,6 +547,29 @@ async def test_wrong_password(fake_ios: FakeIOSServer) -> None:
     assert not fake_ios.sessions
 
 
+async def test_keyboard_interactive_login(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test a device that only offers keyboard-interactive, like IOS with AAA."""
+    fake_config.kbdint_only = True
+    client = _client(fake_ios)
+    assert await client.async_get_all() == (C1111_INFO, C1111_ARP)
+    assert fake_ios.kbdint_attempts == [["cisco"]]
+    assert fake_ios.password_attempts == []
+
+
+async def test_keyboard_interactive_wrong_password(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test a wrong password at the keyboard-interactive prompt."""
+    fake_config.kbdint_only = True
+    client = _client(fake_ios, password="wrong")
+    with pytest.raises(CiscoAuthenticationError):
+        await client.async_get_all()
+    assert ["wrong"] in fake_ios.kbdint_attempts
+    assert not fake_ios.sessions
+
+
 async def test_host_key_trust_on_first_use_then_pinned(
     fake_ios: FakeIOSServer,
 ) -> None:
@@ -550,7 +613,9 @@ async def test_pinned_host_key_mismatch(
 
 
 async def test_pinned_host_key_type_not_offered(
-    fake_ios: FakeIOSServer, ed25519_host_key: asyncssh.SSHKey
+    fake_ios: FakeIOSServer,
+    rsa_host_key: asyncssh.SSHKey,
+    ed25519_host_key: asyncssh.SSHKey,
 ) -> None:
     """Test a pinned key type the device no longer offers."""
     client = _client(
@@ -559,9 +624,116 @@ async def test_pinned_host_key_type_not_offered(
     with pytest.raises(CiscoHostKeyMismatchError) as exc_info:
         await client.async_probe()
     assert exc_info.value.expected_fingerprint == ed25519_host_key.get_fingerprint()
-    assert exc_info.value.presented_fingerprint is None
-    assert client.presented_host_key is None
+    # The key the device offers now is fetched without logging in.
+    assert exc_info.value.presented_fingerprint == rsa_host_key.get_fingerprint()
+    assert client.presented_host_key == fake_ios.host_public_keys[0]
     assert client.legacy_algorithms is False
+    assert fake_ios.password_attempts == []
+    assert not fake_ios.sessions
+
+
+@pytest.mark.parametrize("key_changed", [False, True])
+async def test_pinned_host_key_early_disconnect(
+    fake_ios: FakeIOSServer,
+    fake_config: FakeIOSConfig,
+    rsa_host_key: asyncssh.SSHKey,
+    key_changed: bool,
+) -> None:
+    """Test a device that drops the connection before it presents a key.
+
+    The key is fetched again without logging in, so a changed key is
+    reported no matter how the device ends the key exchange.
+    """
+    fake_config.drop_after_kexinit = frozenset({1})
+    pinned = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
+    host_key = pinned if key_changed else rsa_host_key
+    client = _client(fake_ios, host_key=host_key.export_public_key("openssh").decode())
+    if key_changed:
+        with pytest.raises(CiscoHostKeyMismatchError) as exc_info:
+            await client.async_get_all()
+        assert exc_info.value.presented_fingerprint == rsa_host_key.get_fingerprint()
+        assert client.presented_host_key == fake_ios.host_public_keys[0]
+    else:
+        with pytest.raises(_CiscoEarlyDisconnectError):
+            await client.async_get_all()
+        assert client.presented_host_key is None
+    assert len(fake_ios.connections) == 2
+    assert fake_ios.password_attempts == []
+
+
+async def test_pinned_host_key_fetch_fails(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test that the original error is kept when the key can't be fetched."""
+    fake_config.drop_after_kexinit = frozenset({1, 2})
+    other = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
+    client = _client(fake_ios, host_key=other.export_public_key("openssh").decode())
+    with pytest.raises(_CiscoEarlyDisconnectError):
+        await client.async_get_all()
+    assert len(fake_ios.connections) == 2
+
+
+async def test_fetch_host_key(fake_ios: FakeIOSServer) -> None:
+    """Test fetching the host key without logging in."""
+    client = _client(fake_ios)
+    assert await client.async_fetch_host_key() == fake_ios.host_public_keys[0]
+    assert client.presented_host_key == fake_ios.host_public_keys[0]
+    assert client.legacy_algorithms is False
+    assert fake_ios.password_attempts == []
+    assert not fake_ios.sessions
+
+
+async def test_fetch_host_key_legacy(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test fetching the host key of a device that needs legacy algorithms."""
+    fake_config.legacy_only = True
+    async with FakeIOSServer(fake_config) as server:
+        client = _client(server)
+        assert await client.async_fetch_host_key() == server.host_public_keys[0]
+        assert client.legacy_algorithms is True
+        assert not server.sessions
+
+
+async def test_fetch_host_key_errors(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test errors while fetching the host key."""
+    fake_config.server_options = {
+        "encryption_algs": ["aes128-ctr"],
+        "mac_algs": ["hmac-md5-96"],
+    }
+    async with FakeIOSServer(fake_config) as server:
+        client = _client(server, legacy_algorithms=True)
+        with pytest.raises(KEX_FAILURES):
+            await client.async_fetch_host_key()
+        assert len(server.connections) == 1
+
+    async with silent_tcp_server() as port:
+        client = CiscoIOSClient(
+            "127.0.0.1", port, "admin", password="cisco", timeout=0.3
+        )
+        with pytest.raises(CiscoConnectionError, match="Timed out"):
+            await client.async_fetch_host_key()
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    client = CiscoIOSClient("127.0.0.1", port, "admin", password="cisco", timeout=2)
+    with pytest.raises(CiscoConnectionError, match="Cannot connect"):
+        await client.async_fetch_host_key()
+
+
+async def test_fetch_host_key_not_checked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test a connection that never checked a host key."""
+    conn = MagicMock()
+    monkeypatch.setattr(
+        asyncssh, "create_connection", AsyncMock(return_value=(conn, None))
+    )
+    client = CiscoIOSClient("127.0.0.1", 22, "admin", password="cisco")
+    with pytest.raises(CiscoConnectionError, match="presented no host key"):
+        await client.async_fetch_host_key()
+    conn.abort.assert_called_once()
 
 
 async def test_invalid_pinned_host_key(fake_ios: FakeIOSServer) -> None:
@@ -571,14 +743,24 @@ async def test_invalid_pinned_host_key(fake_ios: FakeIOSServer) -> None:
         await client.async_get_all()
 
 
+@pytest.mark.parametrize(
+    ("encryption", "mac"),
+    [
+        # Each legacy cipher and MAC that asyncssh doesn't enable by default.
+        ("aes128-cbc", "hmac-sha1"),
+        ("3des-cbc", "hmac-md5"),
+        ("aes256-cbc", "hmac-sha1-96"),
+    ],
+)
 async def test_probe_legacy_fallback(
-    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig, encryption: str, mac: str
 ) -> None:
     """Test that the probe falls back to legacy algorithms for old devices."""
     fake_config.legacy_only = True
+    fake_config.server_options = {"encryption_algs": [encryption], "mac_algs": [mac]}
     async with FakeIOSServer(fake_config) as legacy_server:
         client = _client(legacy_server)
-        with pytest.raises(CiscoKeyExchangeError):
+        with pytest.raises(KEX_FAILURES):
             await client.async_get_all()
 
         assert await client.async_probe() == (C1111_INFO, C1111_ARP)
@@ -588,8 +770,53 @@ async def test_probe_legacy_fallback(
 
         # A pinned key does not hide a real algorithm problem.
         pinned = _client(legacy_server, host_key=client.presented_host_key)
-        with pytest.raises(CiscoKeyExchangeError):
+        with pytest.raises(KEX_FAILURES):
             await pinned.async_get_all()
+
+
+async def test_probe_legacy_fallback_after_early_disconnect(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig
+) -> None:
+    """Test a device that drops the connection instead of reporting a KEX error."""
+    fake_config.drop_after_kexinit = frozenset({1})
+    client = _client(fake_ios)
+    assert await client.async_probe() == (C1111_INFO, C1111_ARP)
+    assert client.legacy_algorithms is True
+    assert len(fake_ios.connections) == 2
+
+
+@pytest.mark.parametrize(
+    ("errors", "expected"),
+    [
+        # A KEX failure with the legacy algorithms is reported as such.
+        ((CiscoKeyExchangeError("a"), CiscoKeyExchangeError("b")), 1),
+        ((_CiscoEarlyDisconnectError("a"), CiscoKeyExchangeError("b")), 1),
+        # Other connection errors of the legacy attempt keep the first error.
+        ((CiscoKeyExchangeError("a"), _CiscoEarlyDisconnectError("b")), 0),
+        ((CiscoKeyExchangeError("a"), CiscoConnectionError("b")), 0),
+        ((_CiscoEarlyDisconnectError("a"), _CiscoEarlyDisconnectError("b")), 0),
+        # A login error with the legacy algorithms is real.
+        ((CiscoKeyExchangeError("a"), CiscoAuthenticationError("b")), 1),
+        # Other errors are not retried.
+        ((CiscoConnectionError("a"),), 0),
+        ((CiscoHostKeyMismatchError("a", "b"),), 0),
+    ],
+)
+async def test_probe_fallback_errors(
+    errors: tuple[Exception, ...], expected: int
+) -> None:
+    """Test which error the probe reports when the legacy fallback fails."""
+    client = CiscoIOSClient("127.0.0.1", 22, "admin", password="cisco")
+    get_all = AsyncMock(side_effect=errors)
+    client._async_get_all = get_all  # type: ignore[method-assign]
+    with pytest.raises(CiscoError) as exc_info:
+        await client.async_probe()
+    assert exc_info.value is errors[expected]
+    assert [call.args for call in get_all.await_args_list] == [
+        (False,),
+        (True,),
+    ][: len(errors)]
+    assert client.legacy_algorithms is False
 
 
 async def test_probe_without_fallback(fake_ios: FakeIOSServer) -> None:
@@ -611,9 +838,11 @@ async def test_probe_no_common_algorithms(
     }
     async with FakeIOSServer(fake_config) as server:
         client = _client(server, legacy_algorithms=legacy)
-        with pytest.raises(CiscoKeyExchangeError):
+        with pytest.raises(KEX_FAILURES):
             await client.async_probe()
         assert client.legacy_algorithms is legacy
+        # Legacy algorithms are only tried if they weren't used already.
+        assert len(server.connections) == (1 if legacy else 2)
 
 
 async def test_paging_when_terminal_length_rejected(
@@ -662,6 +891,11 @@ async def test_split_lines_and_prompt_like_lines(
     fake_config.split_lines = True
     fake_config.motd = "Unauthorized access is prohibited\nWARNING#\nLast line"
     fake_config.commands["show version"] = f"{SHOW_VERSION_C1111}status#\n"
+    # A prompt-like line in the middle of the output must not end it early.
+    arp_lines = SHOW_IP_ARP_C1111.splitlines(keepends=True)
+    fake_config.commands["show ip arp"] = "".join(
+        [*arp_lines[:4], "status#\n", *arp_lines[4:]]
+    )
     client = _client(fake_ios)
     assert await client.async_get_all() == (C1111_INFO, C1111_ARP)
 
@@ -685,6 +919,50 @@ async def test_authorization_failed_at_login(
     client = _client(fake_ios)
     with pytest.raises(CiscoCommandError, match="Authorization failed"):
         await client.async_get_all()
+
+
+@pytest.mark.parametrize("command", ["show version", "show ip arp"])
+async def test_command_authorization_failed(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig, command: str
+) -> None:
+    """Test a command denied by AAA command authorization (no leading %)."""
+    fake_config.commands[command] = f"{COMMAND_AUTHORIZATION_FAILED}\n"
+    client = _client(fake_ios)
+    with pytest.raises(
+        CiscoCommandError, match=f"rejected '{command}': Command authorization failed"
+    ):
+        await client.async_probe()
+
+
+@pytest.mark.parametrize(
+    ("command", "output"),
+    [
+        ("show ip arp", "You are not allowed to run this command\n"),
+        ("show version", "You are not allowed to run this command\n"),
+        ("show version", ""),
+    ],
+)
+async def test_unexpected_command_output(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig, command: str, output: str
+) -> None:
+    """Test output that is not from `show ip arp` or `show version`."""
+    fake_config.commands[command] = output
+    client = _client(fake_ios)
+    with pytest.raises(CiscoCommandError, match="Unexpected output"):
+        await client.async_get_all()
+
+
+@pytest.mark.parametrize(
+    "output",
+    ["", "Protocol  Address          Age (min)  Hardware Addr   Type   Interface\n"],
+)
+async def test_empty_arp_table(
+    fake_ios: FakeIOSServer, fake_config: FakeIOSConfig, output: str
+) -> None:
+    """Test that an empty ARP table is not an error."""
+    fake_config.commands["show ip arp"] = output
+    client = _client(fake_ios)
+    assert await client.async_get_arp_table() == []
 
 
 async def test_session_closed_by_device(

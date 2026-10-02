@@ -2,6 +2,7 @@
   "config": {
     "abort": {
       "already_configured": "This device is already configured.",
+      "already_in_progress": "Configuration of this device is already in progress.",
       "reauth_successful": "Reauthentication was successful.",
       "reconfigure_successful": "Reconfiguration was successful.",
       "wrong_device": "You connected to a different device. Its serial number does not match the device of this entry."
@@ -68,7 +69,7 @@
         "title": "Pasted private key"
       },
       "reauth_confirm": {
-        "description": "{host} rejected the stored credentials. Choose how Home Assistant logs in to the device.",
+        "description": "Home Assistant can't log in to {host} with the stored credentials. The device may have rejected them, or the private key may be missing or unreadable. Choose how Home Assistant logs in to the device.",
         "menu_options": {
           "key_file": "Private key file",
           "password": "Password",
@@ -85,11 +86,11 @@
           "host": "The hostname or IP address of the device.",
           "port": "The SSH port of the device."
         },
-        "description": "Change the address of the device. Home Assistant connects with the stored credentials and stores the SSH host key the device presents.",
+        "description": "Change the address of the device. Before Home Assistant logs in with the stored credentials, it checks that the device presents the stored SSH host key. If the key changed, you are asked to confirm the new key first.",
         "title": "Reconfigure the device"
       },
       "reconfigure_confirm_host_key": {
-        "description": "The SSH host key of {host} has changed.\n\nStored key: `{old_fingerprint}`\nNew key: `{new_fingerprint}`\n\nOnly continue if you expected this change, for example after you generated a new key on the device or replaced the device. You can check the key on the device with `show ip ssh` and `show crypto key mypubkey rsa`.",
+        "description": "The SSH host key of {host} has changed.\n\nStored key: `{old_fingerprint}`\nNew key: `{new_fingerprint}`\n\nHome Assistant has not logged in to the device yet. Only continue if you expected this change, for example after you generated a new key on the device or replaced the device. You can check the key on the device with `show ip ssh` and `show crypto key mypubkey rsa`. When you continue, Home Assistant logs in with the stored credentials and stores the new key.",
         "title": "Confirm the new host key"
       },
       "user": {
@@ -114,9 +115,6 @@
         "state_attributes": {
           "interface": {
             "name": "Interface"
-          },
-          "last_time_reachable": {
-            "name": "Last time reachable"
           }
         }
       }
@@ -141,7 +139,7 @@
       "message": "The private key could not be loaded. The passphrase may be wrong or the key may be invalid."
     },
     "key_file_not_found": {
-      "message": "The private key file {key_file} does not exist or cannot be read."
+      "message": "The private key file {key_file} does not exist or cannot be read. Restore the file, or reauthenticate to enter a new path or another login method."
     }
   },
   "issues": {
@@ -158,7 +156,7 @@
           "max_arp_age": "Maximum ARP age"
         },
         "data_description": {
-          "consider_home": "How long, in seconds, a client stays home after it was last seen in the ARP table.",
+          "consider_home": "How long, in seconds, a client stays home after it was last seen in the ARP table. With 0, a client is away as soon as a poll no longer sees it.",
           "max_arp_age": "The maximum age, in minutes, of an ARP entry for the client to count as seen. With 0, only entries that were refreshed in the last minute count. Raise this if your clients show as away while they are connected."
         },
         "description": "Change how clients are detected.",

@@ -53,15 +53,24 @@ async def test_entities(
 async def test_connected_clients(
     hass: HomeAssistant, mock_client: MagicMock, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Test that the sensor counts the clients that are home."""
+    """Test that the sensor counts the clients that are home.
+
+    That includes clients that left the ARP table less than consider home
+    (180 seconds) ago.
+    """
     assert hass.states.get(ENTITY_ID).state == "2"
 
     mock_client.async_get_all.return_value = (
         DEVICE_INFO,
         [ArpEntry("10.1.10.20", MAC_1, 0, "Vlan10")],
     )
-    freezer.tick(timedelta(seconds=200))
+    freezer.tick(timedelta(seconds=60))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
+    # The second client is no longer active, but still home.
+    assert hass.states.get(ENTITY_ID).state == "2"
 
+    freezer.tick(timedelta(seconds=140))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
     assert hass.states.get(ENTITY_ID).state == "1"

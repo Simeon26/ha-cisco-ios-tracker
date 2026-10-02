@@ -29,4 +29,3 @@ DEFAULT_PORT: Final = 22
 SCAN_INTERVAL: Final = timedelta(seconds=30)
 
 ATTR_INTERFACE: Final = "interface"
-ATTR_LAST_TIME_REACHABLE: Final = "last_time_reachable"

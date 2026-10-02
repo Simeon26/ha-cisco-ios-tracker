@@ -66,6 +66,9 @@ class FakeIOSConfig:
     username: str = "admin"
     # None disables password authentication.
     password: str | None = "cisco"
+    # Only offer keyboard-interactive with a password prompt, like IOS with
+    # `aaa new-model` and TACACS+ or RADIUS.
+    kbdint_only: bool = False
     # Public (or private) keys accepted for public key authentication.
     authorized_keys: list[asyncssh.SSHKey] = field(default_factory=list)
     # Host keys of the server; an RSA key is generated when empty.
@@ -82,6 +85,10 @@ class FakeIOSConfig:
     terminal_length: int = 24
     # Only offer old algorithms (group1-sha1, aes128-cbc, hmac-sha1).
     legacy_only: bool = False
+    # Close these connections (1 is the first) right after sending the
+    # KEXINIT, like a device that drops the connection when it finds no
+    # common algorithms.
+    drop_after_kexinit: frozenset[int] = frozenset()
     # Extra options for `asyncssh.listen`, such as `mac_algs`.
     server_options: dict[str, Any] = field(default_factory=dict)
     # Ignore `exit` instead of closing the session.
@@ -111,6 +118,17 @@ class FakeIOSSession:
     exited: bool = False
 
 
+def _close_after_kexinit(conn: asyncssh.SSHServerConnection) -> None:
+    """Make the connection close right after it sent its KEXINIT."""
+    send_kexinit = conn._send_kexinit
+
+    def _send_kexinit_and_close() -> None:
+        send_kexinit()
+        conn._transport.close()
+
+    conn._send_kexinit = _send_kexinit_and_close
+
+
 class _FakeSSHServer(asyncssh.SSHServer):
     """SSH server callbacks for authentication."""
 
@@ -124,6 +142,8 @@ class _FakeSSHServer(asyncssh.SSHServer):
         """Track the connection so it can be closed with the server."""
         self._conn = conn
         self._server.connections.append(conn)
+        if len(self._server.connections) in self._config.drop_after_kexinit:
+            _close_after_kexinit(conn)
 
     def begin_auth(self, username: str) -> bool:
         """Send the login banner and require authentication."""
@@ -133,11 +153,29 @@ class _FakeSSHServer(asyncssh.SSHServer):
 
     def password_auth_supported(self) -> bool:
         """Return whether password authentication is enabled."""
-        return self._config.password is not None
+        return self._config.password is not None and not self._config.kbdint_only
 
     def validate_password(self, username: str, password: str) -> bool:
         """Check the username and password."""
+        self._server.password_attempts.append(password)
         return username == self._config.username and password == self._config.password
+
+    def kbdint_auth_supported(self) -> bool:
+        """Return whether keyboard-interactive authentication is enabled."""
+        return self._config.password is not None
+
+    def get_kbdint_challenge(
+        self, username: str, lang: str, submethods: str
+    ) -> tuple[str, str, str, list[tuple[str, bool]]]:
+        """Ask for the password like IOS with AAA does."""
+        return "", "", "", [("Password: ", False)]
+
+    def validate_kbdint_response(self, username: str, responses: list[str]) -> bool:
+        """Check the username and the password typed at the prompt."""
+        self._server.kbdint_attempts.append(list(responses))
+        return username == self._config.username and responses == [
+            self._config.password
+        ]
 
     def public_key_auth_supported(self) -> bool:
         """Return whether public key authentication is enabled."""
@@ -289,6 +327,9 @@ class FakeIOSServer:
         self.port = 0
         self.sessions: list[FakeIOSSession] = []
         self.connections: list[asyncssh.SSHServerConnection] = []
+        # Passwords received with password and keyboard-interactive login.
+        self.password_attempts: list[str] = []
+        self.kbdint_attempts: list[list[str]] = []
         self._acceptor: asyncssh.SSHAcceptor | None = None
 
     @property

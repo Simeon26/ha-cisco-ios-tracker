@@ -36,6 +36,7 @@ from homeassistant.const import (
     CONF_PORT,
     CONF_USERNAME,
     STATE_HOME,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -173,7 +174,6 @@ def _assert_initial_states(hass: HomeAssistant) -> None:
     assert laptop.state == STATE_HOME
     assert laptop.attributes[ATTR_IP] == "192.168.1.20"
     assert laptop.attributes["interface"] == "Vlan1"
-    assert laptop.attributes["last_time_reachable"] is not None
 
     pi = hass.states.get(ENTITY_PI)
     assert pi is not None
@@ -325,7 +325,9 @@ async def test_host_key_change_and_reconfigure(
     assert issue.translation_placeholders["expected"] == fingerprint(old_host_key)
     assert issue.translation_placeholders["presented"] == fingerprint(real_host_key)
 
-    # Reconfigure captures the key again and asks to confirm the change.
+    # Reconfigure asks to confirm the new key before it logs in.
+    password_attempts = len(password_server.password_attempts)
+    sessions = len(password_server.sessions)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id}
     )
@@ -336,10 +338,20 @@ async def test_host_key_change_and_reconfigure(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reconfigure_confirm_host_key"
+    assert result["description_placeholders"] == {
+        "host": password_server.host,
+        "old_fingerprint": fingerprint(old_host_key),
+        "new_fingerprint": fingerprint(real_host_key),
+    }
+    # The password was not sent to the device with the unconfirmed key.
+    assert len(password_server.password_attempts) == password_attempts
+    assert len(password_server.sessions) == sessions
+
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
+    assert password_server.password_attempts[password_attempts:][0] == "cisco"
 
     assert entry.data[CONF_HOST_KEY] == real_host_key
     assert entry.state is ConfigEntryState.LOADED
@@ -350,5 +362,26 @@ async def test_host_key_change_and_reconfigure(
     laptop = hass.states.get(ENTITY_LAPTOP)
     assert laptop is not None
     assert laptop.state == STATE_HOME
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_command_authorization_failed_during_poll(
+    hass: HomeAssistant, password_server: FakeIOSServer
+) -> None:
+    """Test that a denied `show ip arp` makes the entities unavailable.
+
+    The trackers must not silently go away because of an empty table.
+    """
+    entry = await _async_config_flow(
+        hass, password_server, AUTH_PASSWORD, {CONF_PASSWORD: "cisco"}
+    )
+    password_server.config.commands["show ip arp"] = "Command authorization failed.\n"
+    await _async_poll(hass)
+
+    laptop = hass.states.get(ENTITY_LAPTOP)
+    assert laptop is not None
+    assert laptop.state == STATE_UNAVAILABLE
+    assert entry.runtime_data.last_update_success is False
 
     assert await hass.config_entries.async_unload(entry.entry_id)

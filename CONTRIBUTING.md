@@ -83,9 +83,11 @@ python -m script.hassfest --action validate \
 | Workflow | Jobs |
 |---|---|
 | `.github/workflows/validate.yml` | hassfest and the HACS action (`category: integration`, no `ignore`). Runs on pushes to `main`, pull requests, daily and on demand. |
-| `.github/workflows/tests.yml` | Ruff and mypy, and pytest on Python 3.14 against two Home Assistant versions: the phcc pinned in `requirements_test.txt` (snapshots asserted), and the minimum version from `hacs.json` (phcc 0.13.317, Home Assistant 2026.3.1), where snapshots are regenerated instead of asserted because their output differs between releases. Runs weekly too, to catch breakage from new Home Assistant releases. |
+| `.github/workflows/tests.yml` | Ruff and mypy, and pytest on Python 3.14 against two Home Assistant versions: the phcc pinned in `requirements_test.txt` (snapshots asserted), and the minimum version from `hacs.json` (phcc 0.13.317, Home Assistant 2026.3.1), where snapshots are regenerated instead of asserted because their output differs between releases. Snapshot-independent assertions, such as the diagnostics redaction checks, still run there. Runs weekly too, to catch breakage from new asyncssh and cryptography releases. Home Assistant itself only changes when you bump phcc, see below. |
 
 Dependabot opens weekly pull requests for GitHub Actions and Python requirements. It ignores phcc, because every phcc bump needs a snapshot refresh.
+
+The ruff and mypy pre-commit hooks run the versions installed from `requirements_lint.txt`, so a Dependabot bump of ruff applies to CI and to pre-commit at the same time. Dependabot doesn't update the other hook revisions (codespell and pre-commit-hooks). Run `pre-commit autoupdate` now and then, and open a pull request with the result.
 
 ## Bumping the tested Home Assistant version
 

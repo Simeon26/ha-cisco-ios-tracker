@@ -2,6 +2,7 @@
 
 import asyncssh
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -9,9 +10,9 @@ from homeassistant.const import (
     CONF_USERNAME,
     Platform,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 
 from .client import (
     CiscoIOSClient,
@@ -30,7 +31,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
-from .coordinator import CiscoConfigEntry, CiscoCoordinator
+from .coordinator import CiscoConfigEntry, CiscoCoordinator, host_key_issue_id
 
 PLATFORMS: list[Platform] = [Platform.DEVICE_TRACKER, Platform.SENSOR]
 
@@ -47,7 +48,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> boo
                 entry.data.get(CONF_PASSPHRASE),
             )
         except CiscoKeyFileNotFoundError as err:
-            raise ConfigEntryError(
+            # Reauthentication lets the user enter a new path or switch to
+            # another login method.
+            raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN,
                 translation_key="key_file_not_found",
                 translation_placeholders={
@@ -80,7 +83,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> boo
 
 async def async_unload_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        # The next poll creates the issue again if the key still differs.
+        _async_delete_host_key_issue(hass, entry)
+    return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: CiscoConfigEntry) -> None:
+    """Remove the repair issue of a deleted config entry."""
+    _async_delete_host_key_issue(hass, entry)
+
+
+@callback
+def _async_delete_host_key_issue(hass: HomeAssistant, entry: CiscoConfigEntry) -> None:
+    """Delete the host key mismatch repair issue of a config entry."""
+    ir.async_delete_issue(hass, DOMAIN, host_key_issue_id(entry.entry_id))
 
 
 async def async_remove_config_entry_device(
@@ -90,6 +107,9 @@ async def async_remove_config_entry_device(
     if any(domain == DOMAIN for domain, _ in device_entry.identifiers):
         # The router itself can only be removed with the config entry.
         return False
+    if entry.state is not ConfigEntryState.LOADED:
+        # Without a connection no client can be confirmed as home.
+        return True
     coordinator = entry.runtime_data
     return not any(
         connection_type == dr.CONNECTION_NETWORK_MAC and coordinator.is_connected(mac)

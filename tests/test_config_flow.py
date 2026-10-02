@@ -51,7 +51,7 @@ PRIVATE_KEY = (
 )
 USER_INPUT = {CONF_HOST: f" {HOST} ", CONF_PORT: 22, CONF_USERNAME: USERNAME}
 
-pytestmark = pytest.mark.usefixtures("mock_setup_entry")
+pytestmark = pytest.mark.usefixtures("mock_setup_entry", "mock_fingerprint")
 
 
 async def _start_user_flow(hass: HomeAssistant, method: str) -> FlowResult:
@@ -320,6 +320,7 @@ async def test_reauth_password(
     mock_client: MagicMock,
     mock_client_class: MagicMock,
     mock_config_entry: MockConfigEntry,
+    mock_setup_entry: AsyncMock,
 ) -> None:
     """Test reauthentication with a new password and username."""
     result = await _start_reauth_flow(hass, mock_config_entry, AUTH_PASSWORD)
@@ -329,6 +330,7 @@ async def test_reauth_password(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
     assert mock_config_entry.data == {
         **ENTRY_DATA,
         CONF_USERNAME: "admin",
@@ -337,6 +339,8 @@ async def test_reauth_password(
     # The stored host key is used to verify the device.
     assert mock_client.async_probe.await_count == 1
     assert mock_client_class.call_args.kwargs["host_key"] == HOST_KEY
+    # The entry is reloaded with the new credentials.
+    assert len(mock_setup_entry.mock_calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -371,6 +375,7 @@ async def test_reauth_switch_to_key(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
     assert mock_config_entry.data == {
         CONF_HOST: HOST,
         CONF_PORT: 22,
@@ -403,6 +408,7 @@ async def test_reauth_host_key_mismatch(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
     assert mock_config_entry.data[CONF_PASSWORD] == "new"
 
 
@@ -436,6 +442,7 @@ async def test_reauth_entry_without_unique_id(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
     assert entry.unique_id is None
 
 
@@ -452,28 +459,49 @@ async def _start_reconfigure_flow(
 
 async def test_reconfigure_unchanged_host_key(
     hass: HomeAssistant,
+    mock_client: MagicMock,
     mock_client_class: MagicMock,
-    mock_config_entry: MockConfigEntry,
+    mock_setup_entry: AsyncMock,
 ) -> None:
     """Test reconfiguring the address of the device."""
-    result = await _start_reconfigure_flow(hass, mock_config_entry)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**ENTRY_DATA, CONF_LEGACY_ALGORITHMS: True},
+        unique_id=SERIAL,
+    )
+    result = await _start_reconfigure_flow(hass, entry)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_HOST: "192.0.2.5 ", CONF_PORT: 22}
     )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    assert mock_config_entry.data == {**ENTRY_DATA, CONF_HOST: "192.0.2.5"}
-    # The host key is captured again instead of being checked.
-    assert mock_client_class.call_args.kwargs["host_key"] is None
+    await hass.async_block_till_done()
+    assert entry.data == {**ENTRY_DATA, CONF_HOST: "192.0.2.5"}
+    # The stored host key is pinned, so the device must prove it has that
+    # key before the credentials are sent. Legacy algorithms are detected
+    # again, so they are dropped after a software upgrade.
+    mock_client_class.assert_called_once()
+    assert mock_client_class.call_args.args[0] == "192.0.2.5"
+    assert mock_client_class.call_args.kwargs["host_key"] == HOST_KEY
+    assert mock_client_class.call_args.kwargs["legacy_algorithms"] is False
+    mock_client.async_probe.assert_awaited_once()
+    mock_client.async_fetch_host_key.assert_not_called()
+    assert len(mock_setup_entry.mock_calls) == 1
 
 
 async def test_reconfigure_changed_host_key(
-    hass: HomeAssistant, mock_client: MagicMock, mock_config_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mock_client: MagicMock,
+    mock_client_class: MagicMock,
+    mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test that a changed host key must be confirmed."""
+    """Test that a changed host key is confirmed before logging in."""
+    mock_client.async_probe.side_effect = [
+        CiscoHostKeyMismatchError("SHA256:toredkey", "SHA256:QCnewkey"),
+        (DEVICE_INFO, []),
+    ]
     mock_client.presented_host_key = NEW_HOST_KEY
-    mock_client.legacy_algorithms = True
     result = await _start_reconfigure_flow(hass, mock_config_entry)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_HOST: HOST, CONF_PORT: 22}
@@ -481,27 +509,65 @@ async def test_reconfigure_changed_host_key(
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reconfigure_confirm_host_key"
+    assert result["errors"] == {}
     assert result["description_placeholders"] == {
         "host": HOST,
         "old_fingerprint": "SHA256:toredkey",
         "new_fingerprint": "SHA256:QCnewkey",
     }
     assert mock_config_entry.data[CONF_HOST_KEY] == HOST_KEY
+    # Only the connection with the stored key pinned was made so far.
+    assert mock_client_class.call_count == 1
+    assert mock_client_class.call_args.kwargs["host_key"] == HOST_KEY
+
+    mock_client.legacy_algorithms = True
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert mock_config_entry.data[CONF_HOST_KEY] == NEW_HOST_KEY
+    assert mock_config_entry.data[CONF_LEGACY_ALGORITHMS] is True
+    # After the confirmation, the login pins the confirmed key.
+    assert mock_client_class.call_count == 2
+    assert mock_client_class.call_args.kwargs["host_key"] == NEW_HOST_KEY
+
+
+async def test_reconfigure_confirm_errors(
+    hass: HomeAssistant, mock_client: MagicMock, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test that a failed login after the confirmation can be retried."""
+    mock_client.async_probe.side_effect = [
+        CiscoHostKeyMismatchError("SHA256:toredkey", "SHA256:QCnewkey"),
+        CiscoAuthenticationError,
+        (DEVICE_INFO, []),
+    ]
+    mock_client.presented_host_key = NEW_HOST_KEY
+    result = await _start_reconfigure_flow(hass, mock_config_entry)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: HOST, CONF_PORT: 22}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm_host_key"
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert result["description_placeholders"]["new_fingerprint"] == "SHA256:QCnewkey"
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
     assert mock_config_entry.data[CONF_HOST_KEY] == NEW_HOST_KEY
-    assert mock_config_entry.data[CONF_LEGACY_ALGORITHMS] is True
 
 
 async def test_reconfigure_without_stored_host_key(
-    hass: HomeAssistant, mock_client: MagicMock
+    hass: HomeAssistant, mock_client: MagicMock, mock_client_class: MagicMock
 ) -> None:
-    """Test the confirmation when no host key was stored or presented."""
+    """Test that the host key is fetched without logging in if none is stored."""
     entry = MockConfigEntry(
         domain=DOMAIN, data={**ENTRY_DATA, CONF_HOST_KEY: None}, unique_id=SERIAL
     )
+    mock_client.async_fetch_host_key.return_value = NEW_HOST_KEY
     mock_client.presented_host_key = NEW_HOST_KEY
     result = await _start_reconfigure_flow(hass, entry)
     result = await hass.config_entries.flow.async_configure(
@@ -509,13 +575,26 @@ async def test_reconfigure_without_stored_host_key(
     )
 
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm_host_key"
     assert result["description_placeholders"]["old_fingerprint"] == "none"
+    assert result["description_placeholders"]["new_fingerprint"] == "SHA256:QCnewkey"
+    mock_client.async_probe.assert_not_called()
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert entry.data[CONF_HOST_KEY] == NEW_HOST_KEY
+    assert mock_client_class.call_args.kwargs["host_key"] == NEW_HOST_KEY
 
 
-async def test_reconfigure_no_host_key_presented(
+async def test_reconfigure_mismatch_without_presented_key(
     hass: HomeAssistant, mock_client: MagicMock, mock_config_entry: MockConfigEntry
 ) -> None:
-    """Test the confirmation when the client reports no host key."""
+    """Test a host key mismatch when the client reports no presented key."""
+    mock_client.async_probe.side_effect = CiscoHostKeyMismatchError(
+        "SHA256:toredkey", None
+    )
     mock_client.presented_host_key = None
     result = await _start_reconfigure_flow(hass, mock_config_entry)
     result = await hass.config_entries.flow.async_configure(
@@ -523,25 +602,39 @@ async def test_reconfigure_no_host_key_presented(
     )
 
     assert result["type"] is FlowResultType.FORM
-    assert result["description_placeholders"]["new_fingerprint"] == "none"
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "host_key_mismatch"}
 
 
+@pytest.mark.parametrize("confirm", [False, True])
 async def test_reconfigure_wrong_device(
-    hass: HomeAssistant, mock_client: MagicMock, mock_config_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mock_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    confirm: bool,
 ) -> None:
     """Test that reconfiguring to another device aborts."""
-    mock_client.async_probe.return_value = (
-        replace(DEVICE_INFO, serial="FOC0000X000"),
-        [],
-    )
+    other_device = (replace(DEVICE_INFO, serial="FOC0000X000"), [])
+    if confirm:
+        mock_client.async_probe.side_effect = [
+            CiscoHostKeyMismatchError("SHA256:toredkey", "SHA256:QCnewkey"),
+            other_device,
+        ]
+        mock_client.presented_host_key = NEW_HOST_KEY
+    else:
+        mock_client.async_probe.return_value = other_device
     result = await _start_reconfigure_flow(hass, mock_config_entry)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_HOST: "192.0.2.9", CONF_PORT: 22}
     )
+    if confirm:
+        assert result["step_id"] == "reconfigure_confirm_host_key"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_device"
     assert mock_config_entry.data[CONF_HOST] == HOST
+    assert mock_config_entry.data[CONF_HOST_KEY] == HOST_KEY
 
 
 async def test_reconfigure_already_configured(
@@ -593,6 +686,7 @@ async def test_reconfigure_errors(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
     assert entry.data[CONF_HOST] == "192.0.2.7"
     assert entry.data[CONF_PORT] == 2222
 

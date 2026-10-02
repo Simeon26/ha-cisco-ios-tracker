@@ -1,6 +1,6 @@
 """Config flow for the Cisco IOS Tracker integration."""
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -154,8 +154,10 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._data: dict[str, Any] = {}
-        self._reconfigure_updates: dict[str, Any] = {}
-        self._old_host_key: str | None = None
+        # Reconfigure: the entry data with the new address, and the new host
+        # key that the user has to confirm before Home Assistant logs in.
+        self._reconfigure_data: dict[str, Any] = {}
+        self._new_host_key = ""
 
     @staticmethod
     @callback
@@ -290,10 +292,10 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             data[CONF_PASSPHRASE] = passphrase
         return data
 
-    async def _async_validate(
+    async def _async_create_client(
         self, data: Mapping[str, Any], host_key: str | None, legacy: bool
-    ) -> ValidationResult:
-        """Connect to the device and return its details, host key and legacy flag."""
+    ) -> CiscoIOSClient:
+        """Load the private key, if any, and return a client for the device."""
         client_key: asyncssh.SSHKey | None = None
         if data[CONF_AUTH_METHOD] != AUTH_PASSWORD:
             client_key = await self.hass.async_add_executor_job(
@@ -302,7 +304,7 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 data.get(CONF_KEY_FILE),
                 data.get(CONF_PASSPHRASE),
             )
-        client = CiscoIOSClient(
+        return CiscoIOSClient(
             data[CONF_HOST],
             data[CONF_PORT],
             data[CONF_USERNAME],
@@ -311,6 +313,12 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             host_key=host_key,
             legacy_algorithms=legacy,
         )
+
+    async def _async_validate(
+        self, data: Mapping[str, Any], host_key: str | None, legacy: bool
+    ) -> ValidationResult:
+        """Connect to the device and return its details, host key and legacy flag."""
+        client = await self._async_create_client(data, host_key, legacy)
         device, _ = await client.async_probe()
         return device, client.presented_host_key or host_key, client.legacy_algorithms
 
@@ -323,14 +331,28 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
         legacy: bool = False,
         field_errors: bool = True,
     ) -> ValidationResult | None:
-        """Validate the connection and fill in errors on failure.
+        """Validate the connection and fill in errors on failure."""
+        return await self._async_try(
+            lambda: self._async_validate(data, host_key, legacy),
+            errors,
+            field_errors=field_errors,
+        )
+
+    async def _async_try[T](
+        self,
+        func: Callable[[], Awaitable[T]],
+        errors: dict[str, str],
+        *,
+        field_errors: bool = True,
+    ) -> T | None:
+        """Run a connection check and fill in errors on failure.
 
         Errors about the key file or the passphrase are shown on that field
         when `field_errors` is set, otherwise as a general error.
         """
         field = "base"
         try:
-            return await self._async_validate(data, host_key, legacy)
+            return await func()
         except CiscoKeyFileNotFoundError:
             field, error = CONF_KEY_FILE, "key_file_not_found"
         except CiscoPassphraseError:
@@ -408,7 +430,12 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the address of the device and capture its host key again."""
+        """Change the address of the device.
+
+        The host key is checked before any credentials are sent: either the
+        device proves it has the stored key, or the user must confirm the new
+        key first.
+        """
         entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         suggested: Mapping[str, Any] = entry.data
@@ -418,22 +445,20 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             port = user_input[CONF_PORT]
             self._async_abort_entries_match({CONF_HOST: host, CONF_PORT: port})
             data = {**entry.data, CONF_HOST: host, CONF_PORT: port}
-            result = await self._async_try_validate(data, errors, field_errors=False)
+            stored_key: str | None = entry.data.get(CONF_HOST_KEY)
+            result = await self._async_try(
+                lambda: self._async_check_host_key(data, stored_key),
+                errors,
+                field_errors=False,
+            )
             if result is not None:
                 device, host_key, legacy = result
-                await self._async_abort_if_wrong_device(entry, device)
-                self._reconfigure_updates = {
-                    CONF_HOST: host,
-                    CONF_PORT: port,
-                    CONF_HOST_KEY: host_key,
-                    CONF_LEGACY_ALGORITHMS: legacy,
-                }
-                self._old_host_key = entry.data.get(CONF_HOST_KEY)
-                if host_key != self._old_host_key:
+                self._reconfigure_data = data
+                if device is None:
+                    # The key changed and nothing was sent to the device yet.
+                    self._new_host_key = host_key
                     return await self.async_step_reconfigure_confirm_host_key()
-                return self.async_update_reload_and_abort(
-                    entry, data_updates=self._reconfigure_updates
-                )
+                return await self._async_finish_reconfigure(device, host_key, legacy)
             suggested = user_input
 
         return self.async_show_form(
@@ -444,27 +469,70 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def _async_check_host_key(
+        self, data: Mapping[str, Any], stored_key: str | None
+    ) -> tuple[CiscoDeviceInfo | None, str, bool]:
+        """Connect with the stored host key pinned, or fetch the new host key.
+
+        Returns the device details if the device has the stored key. If the
+        key changed, returns None instead, and the new key: the device then
+        failed the host key check before any credentials were sent.
+        Legacy algorithms are detected again in both cases.
+        """
+        client = await self._async_create_client(data, stored_key, False)
+        if stored_key is None:
+            return None, await client.async_fetch_host_key(), client.legacy_algorithms
+        try:
+            device, _ = await client.async_probe()
+        except CiscoHostKeyMismatchError:
+            if (presented := client.presented_host_key) is None:
+                raise
+            return None, presented, client.legacy_algorithms
+        return device, stored_key, client.legacy_algorithms
+
     async def async_step_reconfigure_confirm_host_key(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask the user to confirm a changed host key."""
+        """Ask the user to confirm a changed host key, then log in."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_update_reload_and_abort(
-                self._get_reconfigure_entry(),
-                data_updates=self._reconfigure_updates,
+            # Log in with the confirmed key pinned, so the credentials only
+            # reach a device that has that key.
+            result = await self._async_try_validate(
+                self._reconfigure_data,
+                errors,
+                host_key=self._new_host_key,
+                field_errors=False,
             )
-        new_host_key: str | None = self._reconfigure_updates[CONF_HOST_KEY]
+            if result is not None:
+                return await self._async_finish_reconfigure(*result)
+        old_host_key: str | None = self._get_reconfigure_entry().data.get(CONF_HOST_KEY)
         return self.async_show_form(
             step_id="reconfigure_confirm_host_key",
             data_schema=vol.Schema({}),
+            errors=errors,
             description_placeholders={
-                "host": self._reconfigure_updates[CONF_HOST],
+                "host": self._reconfigure_data[CONF_HOST],
                 "old_fingerprint": (
-                    fingerprint(self._old_host_key) if self._old_host_key else "none"
+                    fingerprint(old_host_key) if old_host_key else "none"
                 ),
-                "new_fingerprint": (
-                    fingerprint(new_host_key) if new_host_key else "none"
-                ),
+                "new_fingerprint": fingerprint(self._new_host_key),
+            },
+        )
+
+    async def _async_finish_reconfigure(
+        self, device: CiscoDeviceInfo, host_key: str | None, legacy: bool
+    ) -> ConfigFlowResult:
+        """Check the device and store the new address and host key."""
+        entry = self._get_reconfigure_entry()
+        await self._async_abort_if_wrong_device(entry, device)
+        return self.async_update_reload_and_abort(
+            entry,
+            data_updates={
+                CONF_HOST: self._reconfigure_data[CONF_HOST],
+                CONF_PORT: self._reconfigure_data[CONF_PORT],
+                CONF_HOST_KEY: host_key,
+                CONF_LEGACY_ALGORITHMS: legacy,
             },
         )
 

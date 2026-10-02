@@ -203,8 +203,8 @@ You can add more than one device. Each one is a separate entry.
 
 ### Changing credentials, host or port later
 
-- **New password or key**: if the device rejects the stored credentials, Home Assistant asks you to reauthenticate. You can switch to a different login method at the same time.
-- **New IP address, host name or port**: open the integration, select the three-dot menu and choose **Reconfigure**. The integration connects again and checks that it is still the same device (by serial number).
+- **New password or key**: if the device rejects the stored credentials, or the private key or key file can't be read any more, Home Assistant asks you to reauthenticate. You can enter a new key file path or switch to a different login method at the same time.
+- **New IP address, host name or port**: open the integration, select the three-dot menu and choose **Reconfigure**. The integration first checks that the device at the new address presents the pinned SSH host key, and only then logs in with the stored credentials. It also checks that it is still the same device (by serial number).
 
 ## Options
 
@@ -212,7 +212,7 @@ Open **Settings** > **Devices & services** > **Cisco IOS Tracker** and select **
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
-| Consider home | 180 seconds | 0 to 900 seconds | How long a device stays home after it was last seen in the ARP table. |
+| Consider home | 180 seconds | 0 to 900 seconds | How long a device stays home after it was last seen in the ARP table. With 0, a device is home only while the latest poll sees it. |
 | Maximum ARP age | 0 minutes | 0 to 240 minutes | The oldest ARP entry that still counts as "seen". |
 
 ### How presence is decided
@@ -223,7 +223,7 @@ On every poll:
 
 1. Each entry with an age of **Maximum ARP age** or less counts as seen, and its "last seen" time is set to now.
 2. Entries with an age of `-` are ignored. These are the device's own interfaces and static entries. `Incomplete` entries are ignored too.
-3. A device is **home** while less than **Consider home** has passed since it was last seen, and **away** after that.
+3. A device is **home** while it is seen in the latest poll, or while less than **Consider home** has passed since it was last seen. It is **away** after that.
 
 With the defaults, a device is home if its ARP entry was refreshed within the last minute, and it is marked away about 3 minutes after that stops. This is the same rule the core Cisco IOS integration used.
 
@@ -236,17 +236,23 @@ With the defaults, a device is home if its ARP entry was refreshed within the la
 - **A device tracker for each client MAC address.** It is created the first time the MAC address is seen in the ARP table. It is named after the MAC address, with an entity ID such as `device_tracker.00_1d_ec_02_07_ab`. Its attributes include:
   - `ip` and `mac`: the client's current IPv4 address and MAC address.
   - `interface`: the router interface the entry was learned on, for example `Vlan1`.
-  - `last_time_reachable`: when the client was last seen.
 
-Trackers are kept when a client goes away; they show `not_home`. After a restart, a client that was home stays home for the Consider home time, so a restart doesn't trigger "left home" automations.
+  The attributes only change when the client's address or interface changes, so a client that stays home doesn't trigger state change automations on every poll.
 
-To remove a tracker you no longer need, open its device page and select **Delete**. This is only possible while the client is away. The router device itself can't be deleted this way; remove the integration entry instead.
+Trackers are kept when a client goes away; they show `not_home`. Home Assistant remembers when each client was last seen, so after a restart a client that was home stays home for the rest of the Consider home time, and a restart doesn't trigger "left home" automations.
+
+To remove a tracker you no longer need:
+
+- If the tracker has a device (because another integration already knows its MAC address, see below), open the device page and select **Delete**. This is only possible while the client is away.
+- Other trackers have no device page. Disable them in their entity settings instead.
+
+The router device itself can't be deleted this way; remove the integration entry instead.
 
 If one MAC address has several IP addresses (for example a host with secondary addresses), the tracker shows the IP address of the most recently refreshed entry.
 
 ## Why new trackers may be disabled
 
-This is standard Home Assistant behavior for router-based trackers. A busy router can have hundreds of ARP entries, so a new tracker is only **enabled by default if another integration already knows its MAC address**. For example, if ESPHome or Shelly has already created a device with that MAC address, the tracker is enabled and attached to that device. All other trackers are added disabled.
+This is standard Home Assistant behavior for router-based trackers. A busy router can have hundreds of ARP entries, so a new tracker is only **enabled by default if another integration already knows its MAC address**. For example, if ESPHome or Shelly has already created a device with that MAC address, the tracker is enabled and gets a device with that MAC address. All other trackers are added disabled.
 
 To enable a tracker:
 
@@ -266,7 +272,7 @@ When you add a device, the integration records its SSH host key ("trust on first
 
 To check that the pinned key really belongs to your device, compare its SHA256 fingerprint in Home Assistant with the one on the device.
 
-1. In Home Assistant, [download the diagnostics](#diagnostics) and look for the host key fingerprint. It looks like `SHA256:7kR1x...`. You can also see it in the debug log.
+1. In Home Assistant, [enable debug logging](#debug-logging) for a minute. Every connection logs a line such as `192.0.2.1 presented host key SHA256:7kR1x...`. The repair issue and the **Reconfigure** confirmation described below also show fingerprints.
 2. On the device, run `show ip ssh`. Most IOS and IOS-XE releases print the host key under a line that starts with `IOS Keys in SECSH format`. The key starts with `ssh-rsa AAAA` and may wrap over several lines.
 3. On your computer, paste that key on a single line into a file called `router1.pub`, and get its fingerprint:
 
@@ -296,8 +302,8 @@ To fix it:
 
 1. Check the new fingerprint on the device as described above. If you didn't expect the key to change, investigate before you go on.
 2. Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select the three-dot menu and choose **Reconfigure**.
-3. Submit the form. The integration shows the old and the new fingerprint and asks you to confirm.
-4. Confirm. The new key is pinned, the integration reloads and the repair issue goes away.
+3. Submit the form. The integration connects without logging in, shows the old and the new fingerprint and asks you to confirm. Your credentials are not sent to the device yet.
+4. Confirm. The integration logs in with the new key pinned, stores it, reloads, and the repair issue goes away.
 
 If the new device has a different serial number, reconfiguring is refused because it is a different device. Add it as a new entry instead.
 
@@ -365,7 +371,7 @@ If you poll less often, set Consider home to more than your polling interval, or
 
 ## Diagnostics
 
-Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select the three-dot menu and choose **Download diagnostics**. The file contains the options, the host key fingerprint, whether legacy algorithms are in use, the last update status, the device model and software version, entry counts, and the ARP entries with interface and age. Host names, credentials, keys, serial numbers, IP addresses and MAC addresses are redacted, so it's safe to attach to an issue.
+Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select the three-dot menu and choose **Download diagnostics**. The file contains the options, whether a host key is pinned and its type, whether legacy algorithms are in use, the last update status, the device model and software version, entry counts, and the ARP entries with interface and age. Host names, credentials, keys, serial numbers, IP addresses and MAC addresses are redacted, so it's safe to attach to an issue. The host key fingerprint is left out too, because internet scan databases index SSH host key fingerprints and could link it to your public IP address.
 
 ## Limitations
 
@@ -388,8 +394,8 @@ The form shows one of these messages:
 | Failed to connect | The host and port, that the device is reachable from Home Assistant, that `transport input ssh` is set on the VTY lines, and that no access list blocks Home Assistant. Run `show users` to see if all VTY lines are busy. |
 | The device rejected the username or the credentials | The username and password or key. For a key, check that `show running-config \| section pubkey-chain` lists the key under the right username. With `aaa new-model`, check your login and exec authorization method lists. |
 | Home Assistant and the device have no SSH algorithms in common | `ip ssh version 2`, the RSA host key size, and any `ip ssh server algorithm` settings. See [Legacy SSH algorithms](#legacy-ssh-algorithms). |
-| You logged in, but the device rejected the `show version` or `show ip arp` command | The user is allowed to run `show ip arp` and `show version`. Look for `% Authorization failed` in the debug log, which means AAA authorization blocked it. |
-| The key file does not exist or cannot be read | The path, and that Home Assistant can read the file. Relative paths are relative to the configuration directory, so `.ssh/cisco_ha` means `/config/.ssh/cisco_ha`. |
+| You logged in, but the device rejected the `show version` or `show ip arp` command | The user is allowed to run `show ip arp` and `show version`. Look in the debug log for `% Authorization failed` (AAA exec authorization blocked the login) or `Command authorization failed` (AAA command authorization, for example TACACS+ or ISE, blocked the command). `Unexpected output` means the device printed something else instead of the command output. |
+| The key file does not exist or cannot be read | The path, and that Home Assistant can read the file. Relative paths are relative to the configuration directory, so `.ssh/cisco_ha` means `/config/.ssh/cisco_ha`. If the file disappears after setup, Home Assistant asks you to reauthenticate, so you can enter a new path or choose another login method. |
 | The private key is not valid or not supported | That you used the private key (`cisco_ha`), not the public key (`cisco_ha.pub`), and that the whole key including the `BEGIN` and `END` lines was copied. |
 | The passphrase is missing or wrong | The key is encrypted and the passphrase is missing or wrong. |
 | The device presented a different SSH host key | Only shown when you log in again. The device's host key changed; see [When the host key changes](#when-the-host-key-changes). |

@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -12,7 +12,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 from syrupy.assertion import SnapshotAssertion
 
-from custom_components.cisco_ios_tracker import async_remove_config_entry_device
+from custom_components.cisco_ios_tracker import (
+    async_remove_config_entry_device,
+    async_unload_entry,
+)
 from custom_components.cisco_ios_tracker.client import (
     CiscoAuthenticationError,
     CiscoConnectionError,
@@ -26,17 +29,22 @@ from custom_components.cisco_ios_tracker.const import (
     AUTH_PRIVATE_KEY,
     CONF_AUTH_METHOD,
     CONF_KEY_FILE,
+    CONF_MAX_ARP_AGE,
     CONF_PASSPHRASE,
     CONF_PRIVATE_KEY,
     DOMAIN,
     SCAN_INTERVAL,
 )
+from homeassistant.components.device_tracker import CONF_CONSIDER_HOME
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
-from homeassistant.const import CONF_PASSWORD
+from homeassistant.const import CONF_PASSWORD, STATE_HOME
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 
 from .conftest import ARP_ENTRIES, DEVICE_INFO, ENTRY_DATA, HOST_KEY, MAC_1, MAC_STALE
+
+ENTITY_STALE = "device_tracker.00_1d_ec_02_07_ad"
 
 
 def _get_device(
@@ -130,7 +138,10 @@ async def test_setup_with_key(
 async def test_setup_key_file_not_found(
     hass: HomeAssistant, mock_client: MagicMock, mock_load_private_key: MagicMock
 ) -> None:
-    """Test that a missing key file fails setup without reauthentication."""
+    """Test that a missing key file starts reauthentication.
+
+    There the user can enter a new path or choose another login method.
+    """
     mock_load_private_key.side_effect = CiscoKeyFileNotFoundError
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -145,7 +156,15 @@ async def test_setup_key_file_not_found(
     await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
-    assert not hass.config_entries.flow.async_progress()
+    assert entry.reason == (
+        "The private key file /config/.ssh/missing does not exist or cannot be "
+        "read. Restore the file, or reauthenticate to enter a new path or another "
+        "login method"
+    )
+    flows = hass.config_entries.flow.async_progress()
+    assert len(flows) == 1
+    assert flows[0]["context"]["source"] == SOURCE_REAUTH
+    assert flows[0]["context"]["entry_id"] == entry.entry_id
     mock_client.async_get_all.assert_not_called()
 
 
@@ -227,6 +246,64 @@ async def test_setup_host_key_mismatch(
         "expected": "SHA256:stored",
         "presented": "SHA256:presented",
     }
+
+    # Removing the entry removes its repair issue.
+    assert await hass.config_entries.async_remove(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert (
+        issue_registry.async_get_issue(
+            DOMAIN, f"host_key_mismatch_{mock_config_entry.entry_id}"
+        )
+        is None
+    )
+
+
+async def test_unload_removes_host_key_issue(
+    hass: HomeAssistant,
+    mock_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    issue_registry: ir.IssueRegistry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that unloading, for example disabling, removes the repair issue."""
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    issue_id = f"host_key_mismatch_{mock_config_entry.entry_id}"
+    mock_client.async_get_all.side_effect = CiscoHostKeyMismatchError(
+        "SHA256:stored", "SHA256:presented"
+    )
+    freezer.tick(SCAN_INTERVAL)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_unload_failed_keeps_host_key_issue(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    issue_registry: ir.IssueRegistry,
+) -> None:
+    """Test that the repair issue is kept if the platforms can't be unloaded."""
+    issue_id = f"host_key_mismatch_{mock_config_entry.entry_id}"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="host_key_mismatch",
+    )
+    with patch.object(
+        hass.config_entries, "async_unload_platforms", return_value=False
+    ):
+        assert not await async_unload_entry(hass, mock_config_entry)
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
 
 
 @pytest.mark.usefixtures("init_integration")
@@ -316,3 +393,57 @@ async def test_remove_config_entry_device(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert await async_remove_config_entry_device(hass, mock_config_entry, client)
+
+
+@pytest.mark.usefixtures("mock_device_registry_devices")
+async def test_remove_config_entry_device_not_loaded(
+    hass: HomeAssistant,
+    mock_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Test removing devices while the entry is not loaded.
+
+    Home Assistant allows this, for example while the router is offline.
+    """
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    entry_id = mock_config_entry.entry_id
+    router = _get_device(device_registry, entry_id, identifier="FGL2231L0AB")
+    client = _get_device(device_registry, entry_id, mac=MAC_1)
+
+    assert await hass.config_entries.async_unload(entry_id)
+    await hass.async_block_till_done()
+    assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
+
+    # No client can be confirmed as home, so client devices can be removed.
+    assert await async_remove_config_entry_device(hass, mock_config_entry, client)
+    assert not await async_remove_config_entry_device(hass, mock_config_entry, router)
+
+
+@pytest.mark.usefixtures("mock_device_registry_devices")
+async def test_options_change_reloads(
+    hass: HomeAssistant,
+    mock_client: MagicMock,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that changed options take effect without a restart."""
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    # The entry with age 5 is too old with the default maximum ARP age.
+    assert hass.states.get(ENTITY_STALE) is None
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_CONSIDER_HOME: 180, CONF_MAX_ARP_AGE: 5}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.LOADED
+    assert mock_config_entry.runtime_data.max_arp_age == 5
+    state = hass.states.get(ENTITY_STALE)
+    assert state is not None
+    assert state.state == STATE_HOME

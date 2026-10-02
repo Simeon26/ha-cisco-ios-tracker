@@ -40,6 +40,11 @@ class CiscoData:
 type CiscoConfigEntry = ConfigEntry[CiscoCoordinator]
 
 
+def host_key_issue_id(entry_id: str) -> str:
+    """Return the repair issue id used for host key mismatches of an entry."""
+    return f"host_key_mismatch_{entry_id}"
+
+
 class CiscoCoordinator(DataUpdateCoordinator[CiscoData]):
     """Poll the ARP table of a Cisco IOS device."""
 
@@ -78,11 +83,17 @@ class CiscoCoordinator(DataUpdateCoordinator[CiscoData]):
     @property
     def host_key_issue_id(self) -> str:
         """Return the repair issue id used for host key mismatches."""
-        return f"host_key_mismatch_{self.config_entry.entry_id}"
+        return host_key_issue_id(self.config_entry.entry_id)
 
     @callback
     def is_connected(self, mac: str) -> bool:
-        """Return whether a MAC address is considered home."""
+        """Return whether a MAC address is considered home.
+
+        A client that is active in the latest poll is always home, so a
+        consider home time of 0 means "home while it is in the ARP table".
+        """
+        if self.data is not None and mac in self.data.arp:
+            return True
         if (last_seen := self.last_seen.get(mac)) is None:
             return False
         return dt_util.utcnow() - last_seen < self.consider_home

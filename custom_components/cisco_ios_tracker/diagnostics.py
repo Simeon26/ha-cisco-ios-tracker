@@ -9,7 +9,6 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_UNIQUE_ID, CONF_U
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .client import fingerprint
 from .const import (
     CONF_HOST_KEY,
     CONF_KEY_FILE,
@@ -43,7 +42,9 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
-        "host_key_fingerprint": fingerprint(host_key) if host_key else None,
+        # Not the fingerprint: it identifies the device in internet scans.
+        "host_key_pinned": host_key is not None,
+        "host_key_type": host_key.split()[0] if host_key else None,
         "legacy_algorithms": entry.data.get(CONF_LEGACY_ALGORITHMS, False),
         "last_update_success": coordinator.last_update_success,
         "options": dict(entry.options),
