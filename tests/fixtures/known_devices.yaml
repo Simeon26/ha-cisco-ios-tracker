@@ -1,0 +1,49 @@
+# Synthetic known_devices.yaml in the format the legacy tracker writes.
+laptop:
+  name: Office laptop
+  mac: 00:1D:EC:02:07:AB
+  icon: mdi:laptop
+  picture:
+  track: true
+
+00_1d_ec_02_07_ac:
+  name: 00_1d_ec_02_07_ac
+  mac: 00:1D:EC:02:07:AC
+  icon:
+  picture:
+  track: false
+
+printer:
+  name: Study printer
+  mac: 94:dd:f8:00:00:01
+  icon: mdi:printer
+  picture: /local/printer.png
+  track: yes
+
+taken:
+  name: Old entity
+  mac: 94:DD:F8:00:00:02
+  track: true
+
+gps_phone:
+  name: Phone with GPS only
+  icon: mdi:cellphone
+  track: true
+
+duplicate_laptop:
+  name: Same MAC again
+  mac: 00:1D:EC:02:07:AB
+  track: true
+
+bad_mac:
+  name: Not a MAC
+  mac: not-a-mac
+  track: true
+
+bad_icon:
+  name: Bad icon
+  mac: 94:DD:F8:00:00:03
+  icon: not an icon
+  track: maybe
+
+not_a_mapping: just a string

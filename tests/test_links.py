@@ -108,7 +108,7 @@ async def test_link_options_flow_labels(
     """Test the trackers offered by the link step."""
     entity_registry.async_update_entity(TRACKER_2, name="Laptop")
     result = await hass.config_entries.options.async_init(init_integration.entry_id)
-    assert result["menu_options"] == ["settings", "link_device"]
+    assert result["menu_options"] == ["settings", "link_device", "import_known_devices"]
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "link_device"}
     )

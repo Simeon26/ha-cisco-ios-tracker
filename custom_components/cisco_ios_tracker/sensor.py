@@ -110,10 +110,26 @@ class CiscoIPAddressSensor(CoordinatorEntity[CiscoCoordinator], RestoreSensor):
                 connections={(dr.CONNECTION_NETWORK_MAC, mac)}, name=mac
             )
         else:
+            # Without a device, name the sensor after its tracker, so a name
+            # you gave the tracker (or imported) shows here too.
             self._attr_translation_key = "client_ip_address"
-            self._attr_translation_placeholders = {"mac": mac}
+            self._attr_translation_placeholders = {
+                "client": self._tracker_name(coordinator.hass, entry, mac)
+            }
         if (arp := coordinator.data.arp.get(mac)) is not None:
             self._attr_native_value = arp.ip
+
+    @staticmethod
+    def _tracker_name(hass: HomeAssistant, entry: CiscoConfigEntry, mac: str) -> str:
+        """Return the name of the tracker of a MAC address."""
+        entity_registry = er.async_get(hass)
+        if (
+            tracker_entity_id := entity_registry.async_get_entity_id(
+                DEVICE_TRACKER_DOMAIN, DOMAIN, tracker_unique_id(entry, mac)
+            )
+        ) and (tracker := entity_registry.async_get(tracker_entity_id)):
+            return tracker.name or tracker.original_name or mac
+        return mac
 
     @property
     def entity_registry_enabled_default(self) -> bool:

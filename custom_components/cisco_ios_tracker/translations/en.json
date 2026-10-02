@@ -121,7 +121,7 @@
     },
     "sensor": {
       "client_ip_address": {
-        "name": "{mac} IP address"
+        "name": "{client} IP address"
       },
       "connected_clients": {
         "name": "Connected clients"
@@ -171,16 +171,35 @@
   },
   "options": {
     "abort": {
+      "import_successful": "Imported {count} devices. The integration reloads to add the new trackers.",
       "no_trackers": "There are no trackers yet. Wait until the router has seen a client, then try again."
     },
     "error": {
       "device_not_found": "The device was not found. It may have been deleted.",
+      "file_not_found": "The file was not found. Check the path.",
+      "invalid_file": "The file could not be read. Check that it is a valid `known_devices.yaml` file.",
+      "no_devices": "The file has no devices with a MAC address.",
       "own_device": "You can't link a tracker to a device of this integration. Choose a device from another integration.",
       "tracker_not_found": "The tracker was not found. It may have been deleted."
     },
     "step": {
+      "import_known_devices": {
+        "data": {
+          "path": "File"
+        },
+        "data_description": {
+          "path": "The path of the file. A relative path is relative to your configuration directory."
+        },
+        "description": "Import the devices from the `known_devices.yaml` file of the core Cisco IOS integration (or any other legacy device tracker). Each device with a MAC address gets a tracker with its old entity ID, name and icon, and is enabled if it had `track: true`. Remove the `cisco_ios` platform from your YAML configuration and restart Home Assistant first, so the old entity IDs are free.",
+        "title": "Import known_devices.yaml"
+      },
+      "import_known_devices_confirm": {
+        "description": "Found {devices} devices with a MAC address:\n\n- {new} get a new tracker; it shows as away until the router sees the device.\n- {existing} already have a tracker, which is updated.\n- {skipped} entries were skipped because they have no valid MAC address or repeat one.\n\nNames and icons you already set in Home Assistant are kept. These entity IDs are used by another entity, so their trackers keep their current entity ID: {unavailable}.\n\nSubmit to import.",
+        "title": "Import known_devices.yaml"
+      },
       "init": {
         "menu_options": {
+          "import_known_devices": "Import known_devices.yaml",
           "link_device": "Link a tracker to a device",
           "settings": "Settings",
           "unlink_device": "Remove device links"

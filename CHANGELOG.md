@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-03
+
+### Added
+
+- Import `known_devices.yaml` from the core Cisco IOS integration or any other legacy device tracker: choose **Import known_devices.yaml** in the options. Each device with a MAC address gets a tracker with its old entity ID, name and icon, and `track` decides whether it is enabled. Devices the router hasn't seen yet get a tracker right away.
+
+### Changed
+
+- An IP address sensor without a device is named after its tracker, so a name you give the tracker shows on the sensor too.
+
 ## [1.1.0] - 2026-10-03
 
 ### Added
@@ -43,5 +53,6 @@ The first release: a config entry based replacement for the core `cisco_ios` dev
 - Uses asyncssh instead of pexpect, so it no longer needs the `ssh` command on the host or a worker thread for every scan.
 - ARP entries without an interface column and banners or MOTD text no longer break parsing.
 
+[1.2.0]: https://github.com/Simeon26/ha-cisco-ios-tracker/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Simeon26/ha-cisco-ios-tracker/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Simeon26/ha-cisco-ios-tracker/releases/tag/v1.0.0

@@ -706,7 +706,12 @@ async def test_options_flow(
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "init"
-    assert result["menu_options"] == ["settings", "link_device", "unlink_device"]
+    assert result["menu_options"] == [
+        "settings",
+        "link_device",
+        "unlink_device",
+        "import_known_devices",
+    ]
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "settings"}

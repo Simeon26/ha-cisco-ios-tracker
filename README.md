@@ -11,7 +11,7 @@ Presence detection for Home Assistant, based on the ARP table of a Cisco IOS or 
 
 Every 30 seconds the integration logs in to your Cisco device over SSH, runs `show ip arp`, and marks each client as home or away. It is a modern replacement for the core [Cisco IOS](https://www.home-assistant.io/integrations/cisco_ios/) integration:
 
-- You set it up from the UI. There is no YAML and no `known_devices.yaml`.
+- You set it up from the UI. There is no YAML and no `known_devices.yaml`, but you can [import an existing `known_devices.yaml`](#migrating-from-the-core-cisco-ios-integration) to keep your entity IDs and names.
 - You can log in with a password or an SSH key. The key can be pasted in or read from a file, and encrypted keys with a passphrase are supported.
 - The device's SSH host key is pinned when you add it, so a changed key is reported instead of silently accepted.
 - Older devices that only offer legacy SSH algorithms are detected automatically.
@@ -212,7 +212,7 @@ You can add more than one device. Each one is a separate entry.
 
 ## Options
 
-Open **Settings** > **Devices & services** > **Cisco IOS Tracker** and select **Configure**, then **Settings**. Saving the options reloads the integration. The same menu has **Link a tracker to a device** and **Remove device links**, described in [Linking a tracker to a device](#linking-a-tracker-to-a-device).
+Open **Settings** > **Devices & services** > **Cisco IOS Tracker** and select **Configure**, then **Settings**. Saving the options reloads the integration. The same menu has **Link a tracker to a device** and **Remove device links**, described in [Linking a tracker to a device](#linking-a-tracker-to-a-device), and **Import known_devices.yaml**, described in [Migrating from the core Cisco IOS integration](#migrating-from-the-core-cisco-ios-integration).
 
 | Option | Default | Range | What it does |
 |---|---|---|---|
@@ -355,10 +355,10 @@ If neither works, you see a "no common algorithms" error. Check that the device 
 
 ## Migrating from the core Cisco IOS integration
 
-The core `cisco_ios` integration uses the old YAML device tracker platform, which Home Assistant plans to remove in 2027.5. You can't import its YAML configuration, but the move is quick, and your entity IDs can stay the same.
+The core `cisco_ios` integration uses the old YAML device tracker platform, which Home Assistant plans to remove in 2027.5. You can bring your devices over from its `known_devices.yaml` file, keeping their entity IDs, names and icons, so your automations keep working.
 
-1. Make a note of the old tracker entity IDs you use in automations, scripts and dashboards, such as `device_tracker.00_1d_ec_02_07_ab`.
-2. Remove the `cisco_ios` platform from your `configuration.yaml`:
+1. Make a copy of `known_devices.yaml` from your configuration directory, just in case.
+2. Remove the `cisco_ios` platform from your `configuration.yaml`, so the old trackers stop and free their entity IDs:
 
    ```yaml
    device_tracker:
@@ -368,17 +368,33 @@ The core `cisco_ios` integration uses the old YAML device tracker platform, whic
        password: !secret cisco_password
    ```
 
-3. Remove the entries for those devices from `known_devices.yaml`. If only `cisco_ios` used that file, you can delete it.
-4. Restart Home Assistant.
-5. [Add the Cisco IOS Tracker integration](#adding-the-integration).
-6. [Enable the trackers](#why-new-trackers-may-be-disabled) you want to keep.
+3. Restart Home Assistant.
+4. [Add the Cisco IOS Tracker integration](#adding-the-integration).
+5. Open **Settings** > **Devices & services** > **Cisco IOS Tracker**, select **Configure** and choose **Import known_devices.yaml**. Keep the suggested path `known_devices.yaml`, or enter another one (relative paths are relative to your configuration directory).
+6. Check the summary and submit. The integration reloads with the imported trackers.
+7. When you are happy with the result, and if no other legacy tracker uses it, delete `known_devices.yaml`.
 
-New trackers use the same entity ID format, `device_tracker.<mac_address_with_underscores>`, so your automations keep working. If you see IDs ending in `_2`, the old entities still existed when the new ones were created. Remove the old ones and rename the new ones in the entity settings.
+What the import does with each entry that has a MAC address:
+
+| In `known_devices.yaml` | In Home Assistant |
+|---|---|
+| The key, for example `office_printer:` | The entity ID: `device_tracker.office_printer`, and `sensor.office_printer_ip_address` for its [IP address sensor](#what-you-get). |
+| `mac` | Which tracker it is. A device the router hasn't seen yet gets a tracker right away, which shows away until the device is on the network. |
+| `name` | The tracker's name. Legacy trackers named devices they added themselves after the key (`0c_1c_57_4a_95_31`); those names are skipped. |
+| `icon` | The tracker's icon. |
+| `track: true` | The tracker is enabled, even if no other integration knows its MAC address. |
+| `track: false` | The tracker is disabled. |
+
+Good to know:
+
+- Names and icons you already set in Home Assistant are kept.
+- Entries without a MAC address (for example phones tracked only by GPS) are skipped, and so are repeated MAC addresses.
+- If another entity still uses an entity ID, for example because the old platform is still running, the summary lists it and the tracker keeps its current entity ID. Remove the old platform, restart, and import again; importing again is safe.
+- `picture`, `gravatar` and per-device `consider_home` aren't imported. Consider home is an [option](#options) for the whole integration.
 
 What changes for you:
 
 - The `interval_seconds` (12 seconds), `consider_home` and `track_new_devices` settings are gone. Polling is every 30 seconds, Consider home is an option, and new trackers follow the [enabled-by-default rule](#why-new-trackers-may-be-disabled).
-- Friendly names and pictures from `known_devices.yaml` are not migrated. Set them in the entity settings.
 - The user no longer needs to land in privileged EXEC mode. A privilege level 1 user works.
 
 ## Polling interval

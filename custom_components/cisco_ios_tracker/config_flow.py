@@ -19,7 +19,13 @@ from homeassistant.config_entries import (
     OptionsFlow,
     OptionsFlowWithReload,
 )
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_PATH,
+    CONF_PORT,
+    CONF_USERNAME,
+)
 from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -69,6 +75,14 @@ from .const import (
     LOGGER,
     MAX_ARP_AGE_LIMIT,
     MAX_CONSIDER_HOME,
+)
+from .known_devices import (
+    KNOWN_DEVICES_FILE,
+    ImportPlan,
+    KnownDevicesError,
+    async_apply_import,
+    async_plan_import,
+    load_known_devices,
 )
 from .links import async_link_device, async_tracker_entries, get_links
 
@@ -552,6 +566,8 @@ class CiscoIOSTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
 class CiscoIOSTrackerOptionsFlow(OptionsFlowWithReload):
     """Handle the options for Cisco IOS Tracker."""
 
+    _import_plan: ImportPlan
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -559,6 +575,7 @@ class CiscoIOSTrackerOptionsFlow(OptionsFlowWithReload):
         menu_options = ["settings", "link_device"]
         if get_links(self.config_entry.options):
             menu_options.append("unlink_device")
+        menu_options.append("import_known_devices")
         return self.async_show_menu(step_id="init", menu_options=menu_options)
 
     async def async_step_settings(
@@ -664,6 +681,63 @@ class CiscoIOSTrackerOptionsFlow(OptionsFlowWithReload):
             }
         )
         return self.async_show_form(step_id="unlink_device", data_schema=schema)
+
+    async def async_step_import_known_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Read known_devices.yaml from a legacy device tracker."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            # Relative paths are relative to the configuration directory.
+            path = Path(self.hass.config.path(user_input[CONF_PATH].strip()))
+            try:
+                known = await self.hass.async_add_executor_job(
+                    load_known_devices, path, Path(self.hass.config.config_dir)
+                )
+            except KnownDevicesError as err:
+                errors["base"] = err.translation_key
+            else:
+                self._import_plan = async_plan_import(
+                    self.hass, self.config_entry, known
+                )
+                return await self.async_step_import_known_devices_confirm()
+
+        schema = vol.Schema({vol.Required(CONF_PATH): TextSelector()})
+        return self.async_show_form(
+            step_id="import_known_devices",
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input or {CONF_PATH: KNOWN_DEVICES_FILE}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_import_known_devices_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show what the import changes, and import when confirmed."""
+        plan = self._import_plan
+        if user_input is not None:
+            async_apply_import(self.hass, self.config_entry, plan)
+            # Reload so the new trackers and sensors are added.
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+            return self.async_abort(
+                reason="import_successful",
+                description_placeholders={"count": str(len(plan.known.devices))},
+            )
+        return self.async_show_form(
+            step_id="import_known_devices_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "devices": str(len(plan.known.devices)),
+                "new": str(plan.new),
+                "existing": str(plan.existing),
+                "skipped": str(plan.known.skipped),
+                "unavailable": (
+                    ", ".join(f"`{entity_id}`" for entity_id in plan.unavailable)
+                    or "none"
+                ),
+            },
+        )
 
 
 def _tracker_label(registry_entry: er.RegistryEntry) -> str:
