@@ -119,9 +119,18 @@ Release tags use the form `vX.Y.Z` and must match `version` in the manifest with
 
 1. Update `version` in `custom_components/cisco_ios_tracker/manifest.json` and in `pyproject.toml`.
 2. Move the **Unreleased** notes in `CHANGELOG.md` to a new section for the version, with today's date, and update the comparison links at the bottom.
-3. Open a pull request and wait for both workflows to pass.
-4. Merge it into `main` and wait for the workflows to pass on `main`.
-5. Create a GitHub release (not only a tag) named `vX.Y.Z` on `main`, and paste the changelog section as the release notes. HACS uses the latest release to offer updates; without releases it falls back to the commit hash.
+3. Open a pull request and wait for both workflows to pass, then merge it into `main`.
+4. Tag the merge commit and push the tag:
+
+   ```bash
+   git checkout main && git pull
+   git tag -a v1.2.0 -m "v1.2.0"
+   git push origin v1.2.0
+   ```
+
+5. The **Release** workflow runs the tests and validation again, checks that the tag matches the manifest version, and creates the GitHub release with the changelog section as its notes. If it fails, fix the problem, delete the tag (`git push --delete origin v1.2.0` and `git tag -d v1.2.0`) and tag again.
+
+HACS uses the latest release to offer updates; without releases it falls back to the commit hash.
 
 ## Publishing to HACS checklist
 

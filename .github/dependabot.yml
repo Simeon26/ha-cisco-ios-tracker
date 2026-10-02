@@ -17,3 +17,7 @@ updates:
       # Each phcc release pins one Home Assistant version and needs a
       # snapshot refresh, so bump it by hand (see CONTRIBUTING.md).
       - dependency-name: pytest-homeassistant-custom-component
+      # A lower bound that must match manifest.json and the oldest supported
+      # Home Assistant: asyncssh 2.24 needs a newer cryptography than HA
+      # 2026.3 ships with. Raise it by hand together with hacs.json.
+      - dependency-name: asyncssh

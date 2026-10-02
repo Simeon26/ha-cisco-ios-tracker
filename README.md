@@ -1,8 +1,11 @@
 # Cisco IOS Tracker
 
-[![Validate](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/validate.yml/badge.svg)](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/validate.yml)
-[![Tests](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/tests.yml/badge.svg)](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/Simeon26/ha-cisco-ios-tracker)](https://github.com/Simeon26/ha-cisco-ios-tracker/releases/latest)
+[![Validate](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/validate.yml)
+[![Tests](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Simeon26/ha-cisco-ios-tracker/actions/workflows/tests.yml)
 [![HACS custom repository](https://img.shields.io/badge/HACS-custom-orange.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![Home Assistant 2026.3+](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
+[![License](https://img.shields.io/github/license/Simeon26/ha-cisco-ios-tracker)](LICENSE)
 
 Presence detection for Home Assistant, based on the ARP table of a Cisco IOS or IOS-XE router or Layer 3 switch.
 
