@@ -3,4 +3,4 @@
 # Bump it together with the snapshots, see CONTRIBUTING.md.
 pytest-homeassistant-custom-component==0.13.367
 # Runtime requirement, same lower bound as manifest.json.
-asyncssh>=2.21.0
+asyncssh>=2.24.0
